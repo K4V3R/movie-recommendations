@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Рекомендации фильмов</title>
+    <link rel="stylesheet" href="movies.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Рекомендации фильмов</h1>
+
+        <button type="button" class="favourites-bar-btn" id="favouritesBtn">Избранное (0)</button>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Введите фильм или сериал">
+            <button id="searchBtn">Найти</button>
+        </div>
+
+        <div class="filter-bar" id="filterBar" hidden>
+            <div class="filter-group">
+                <span class="filter-label">Тип</span>
+                <div class="filter-toggle" role="group" aria-label="Тип контента">
+                    <button type="button" class="filter-chip" data-filter-type="all">Все</button>
+                    <button type="button" class="filter-chip" data-filter-type="movie">Фильмы</button>
+                    <button type="button" class="filter-chip" data-filter-type="tv">Сериалы</button>
+                </div>
+            </div>
+            <div class="filter-group">
+                <span class="filter-label">Мин. рейтинг</span>
+                <div class="filter-toggle" role="group" aria-label="Минимальный рейтинг">
+                    <button type="button" class="filter-chip" data-filter-rating="0">Любой</button>
+                    <button type="button" class="filter-chip" data-filter-rating="6">6+</button>
+                    <button type="button" class="filter-chip" data-filter-rating="7">7+</button>
+                    <button type="button" class="filter-chip" data-filter-rating="8">8+</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="results" id="results"></div>
+    </div>
+
+    <div class="detail-modal" id="detailModal" hidden aria-hidden="true">
+        <div class="detail-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="detailModalTitle">
+            <button type="button" class="detail-modal__close" id="detailModalClose" aria-label="Закрыть">✕</button>
+            <div class="detail-modal__content" id="detailModalContent"></div>
+        </div>
+    </div>
+
+    <script src="movies.js"></script>
+</body>
+</html>
