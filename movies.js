@@ -8,6 +8,18 @@ const AUTOCOMPLETE_MAX_ITEMS = 6;
 const TRENDING_SIDEBAR_LIMIT = 10;
 const SEARCH_MAX_PAGES = 5;
 
+/** Жанры для боковой панели (TMDb genre_id) */
+const SIDEBAR_BROWSER_GENRES = [
+    { id: 28, label: 'Боевик' },
+    { id: 35, label: 'Комедия' },
+    { id: 18, label: 'Драма' },
+    { id: 27, label: 'Ужасы' },
+    { id: 878, label: 'Фантастика' },
+    { id: 16, label: 'Мультфильм' },
+    { id: 53, label: 'Триллер' },
+    { id: 10749, label: 'Мелодрама' },
+];
+
 const GENRE_MAP = {
     28: 'Боевик',
     12: 'Приключения',
@@ -53,6 +65,8 @@ const searchHistoryClearAllEl = document.getElementById('searchHistoryClearAll')
 const searchSuggestEl = document.getElementById('searchSuggest');
 const trendingListEl = document.getElementById('trendingList');
 const trendingRefreshBtn = document.getElementById('trendingRefresh');
+const sidebarGenreChips = document.getElementById('sidebarGenreChips');
+const resultsContextHeading = document.getElementById('resultsContextHeading');
 
 let previousResults = null;
 let autocompleteTimer = null;
@@ -73,10 +87,90 @@ let searchPaginationQuery = null;
 let searchTotalPages = 0;
 let searchCurrentPage = 0;
 
+let activeBrowserGenreId = null;
+
 function resetSearchPagination() {
     searchPaginationQuery = null;
     searchTotalPages = 0;
     searchCurrentPage = 0;
+}
+
+function clearResultsContextHeading() {
+    if (!resultsContextHeading) return;
+    resultsContextHeading.textContent = '';
+    resultsContextHeading.hidden = true;
+}
+
+function setResultsContextHeading(text) {
+    if (!resultsContextHeading) return;
+    resultsContextHeading.textContent = text;
+    resultsContextHeading.hidden = false;
+}
+
+function syncGenreBrowserChips() {
+    if (!sidebarGenreChips) return;
+    sidebarGenreChips.querySelectorAll('[data-genre-id]').forEach((btn) => {
+        const id = parseInt(btn.dataset.genreId, 10);
+        btn.classList.toggle('is-active', id === activeBrowserGenreId);
+    });
+}
+
+function clearGenreBrowserState() {
+    activeBrowserGenreId = null;
+    syncGenreBrowserChips();
+    clearResultsContextHeading();
+}
+
+async function loadGenreDiscover(id, label) {
+    hideSearchSuggest();
+    if (searchInput) searchInput.value = '';
+    resetSearchPagination();
+    previousResults = null;
+    viewSnapshotBeforeFavourites = null;
+
+    activeBrowserGenreId = id;
+    syncGenreBrowserChips();
+
+    filterBaseItems = null;
+    updateFilterBarVisibility();
+    resultsEl.innerHTML =
+        '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Загрузка...</p>';
+    updateSearchHistoryVisibility();
+
+    const url = `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU&sort_by=popularity.desc&with_genres=${id}&page=1`;
+
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        const raw = data.results || [];
+        const results = raw.map((r) => ({ ...r, media_type: 'movie' }));
+        setResultsContextHeading(`Жанр: ${label}`);
+        renderMovies(results, false, { resetFilters: true });
+    } catch {
+        activeBrowserGenreId = null;
+        syncGenreBrowserChips();
+        clearResultsContextHeading();
+        filterBaseItems = null;
+        updateFilterBarVisibility();
+        resultsEl.innerHTML =
+            '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Не удалось загрузить жанр. Проверьте API ключ.</p>';
+        updateSearchHistoryVisibility();
+    }
+}
+
+function initGenreBrowser() {
+    if (!sidebarGenreChips) return;
+    sidebarGenreChips.innerHTML = '';
+    SIDEBAR_BROWSER_GENRES.forEach(({ id, label }) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'filter-chip sidebar-genre-chip';
+        btn.dataset.genreId = String(id);
+        btn.textContent = label;
+        btn.addEventListener('click', () => loadGenreDiscover(id, label));
+        sidebarGenreChips.appendChild(btn);
+    });
+    syncGenreBrowserChips();
 }
 
 function removeLoadMoreButton() {
@@ -1090,6 +1184,7 @@ function createCard(item) {
 }
 
 function openFavouritesPanel() {
+    clearGenreBrowserState();
     viewSnapshotBeforeFavourites = {
         filterBaseItems: Array.isArray(filterBaseItems) ? filterBaseItems.slice() : [],
         filterType,
@@ -1102,6 +1197,7 @@ function openFavouritesPanel() {
 }
 
 async function loadRecommendations(item) {
+    clearGenreBrowserState();
     previousResults = item._sourceResults;
 
     resetSearchPagination();
@@ -1125,6 +1221,8 @@ async function handleSearch() {
     hideSearchSuggest();
     const query = searchInput.value.trim();
     if (!query) return;
+
+    clearGenreBrowserState();
 
     resetSearchPagination();
     searchBtn.textContent = 'Загрузка...';
@@ -1265,4 +1363,5 @@ updateFavouritesBar();
 syncFilterChips();
 renderSearchHistoryChips();
 updateSearchHistoryVisibility();
+initGenreBrowser();
 loadTrendingSidebar();
