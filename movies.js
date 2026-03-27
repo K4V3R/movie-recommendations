@@ -1,5 +1,6 @@
 const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
+const RATINGS_STORAGE_KEY = "movieAppRatings";
 const THEME_STORAGE_KEY = "movieAppTheme";
 const HISTORY_STORAGE_KEY = "movieAppHistory";
 const AUTOCOMPLETE_MIN_CHARS = 2;
@@ -197,6 +198,118 @@ function updateSearchLoadMoreButton() {
 function getItemKey(item) {
     const mt = item.media_type || 'movie';
     return `${mt}-${item.id}`;
+}
+
+let ratingsMapCache = null;
+
+function getRatingsMap() {
+    if (ratingsMapCache === null) {
+        try {
+            const raw = localStorage.getItem(RATINGS_STORAGE_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            ratingsMapCache =
+                parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch {
+            ratingsMapCache = {};
+        }
+    }
+    return ratingsMapCache;
+}
+
+function getUserRating(item) {
+    const v = getRatingsMap()[getItemKey(item)];
+    return typeof v === 'number' && v >= 1 && v <= 5 ? Math.round(v) : null;
+}
+
+function setUserRating(item, value) {
+    const key = getItemKey(item);
+    const map = getRatingsMap();
+    if (value == null) {
+        delete map[key];
+    } else {
+        map[key] = Math.min(5, Math.max(1, Math.round(value)));
+    }
+    try {
+        localStorage.setItem(RATINGS_STORAGE_KEY, JSON.stringify(map));
+    } catch {
+        /* ignore */
+    }
+}
+
+function attachUserRatingRow(card, item) {
+    const movieRatingEl = card.querySelector('.movie-rating');
+    if (!movieRatingEl) return;
+
+    const row = document.createElement('div');
+    row.className = 'user-rating';
+
+    const label = document.createElement('span');
+    label.className = 'user-rating__label';
+    label.textContent = 'Ваша оценка:';
+
+    const starsWrap = document.createElement('div');
+    starsWrap.className = 'user-rating__stars';
+    starsWrap.setAttribute('role', 'group');
+    starsWrap.setAttribute('aria-label', 'Ваша оценка от 1 до 5');
+
+    const valueEl = document.createElement('span');
+    valueEl.className = 'user-rating__value';
+
+    let hoverVal = null;
+
+    function paintStars() {
+        const savedNow = getUserRating(item);
+        const displayLevel = hoverVal != null ? hoverVal : savedNow || 0;
+        starsWrap.querySelectorAll('.user-rating__star').forEach((btn) => {
+            const v = parseInt(btn.dataset.value, 10);
+            const filled = v <= displayLevel;
+            btn.textContent = filled ? '★' : '☆';
+            btn.classList.toggle('is-filled', filled);
+        });
+        if (savedNow != null) {
+            valueEl.textContent = String(savedNow);
+            valueEl.hidden = false;
+        } else {
+            valueEl.textContent = '';
+            valueEl.hidden = true;
+        }
+    }
+
+    for (let v = 1; v <= 5; v++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'user-rating__star';
+        btn.dataset.value = String(v);
+        btn.setAttribute('aria-label', `Оценить ${v} из 5`);
+        btn.addEventListener('mouseenter', () => {
+            hoverVal = v;
+            paintStars();
+        });
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const current = getUserRating(item);
+            if (current === v) {
+                setUserRating(item, null);
+            } else {
+                setUserRating(item, v);
+            }
+            hoverVal = null;
+            paintStars();
+        });
+        starsWrap.appendChild(btn);
+    }
+
+    starsWrap.addEventListener('mouseleave', () => {
+        hoverVal = null;
+        paintStars();
+    });
+
+    row.appendChild(label);
+    row.appendChild(starsWrap);
+    row.appendChild(valueEl);
+
+    movieRatingEl.insertAdjacentElement('afterend', row);
+    paintStars();
 }
 
 function loadFavourites() {
@@ -1144,6 +1257,8 @@ function createCard(item) {
     card.querySelector('.similar-btn').addEventListener('click', () => {
         loadRecommendations(item);
     });
+
+    attachUserRatingRow(card, item);
 
     const detailType = getDetailMediaType(item);
     if (detailType) {
