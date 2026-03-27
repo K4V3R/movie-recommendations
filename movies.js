@@ -1,6 +1,7 @@
 const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
 const THEME_STORAGE_KEY = "movieAppTheme";
+const HISTORY_STORAGE_KEY = "movieAppHistory";
 
 const GENRE_MAP = {
     28: 'Боевик',
@@ -41,6 +42,9 @@ const detailModal = document.getElementById('detailModal');
 const detailModalContent = document.getElementById('detailModalContent');
 const detailModalClose = document.getElementById('detailModalClose');
 const themeToggle = document.getElementById('themeToggle');
+const searchHistoryEl = document.getElementById('searchHistory');
+const searchHistoryChipsEl = document.getElementById('searchHistoryChips');
+const searchHistoryClearAllEl = document.getElementById('searchHistoryClearAll');
 
 let previousResults = null;
 let detailModalCloseTimer = null;
@@ -134,6 +138,102 @@ function persistTheme(theme) {
     }
 }
 
+function loadSearchHistory() {
+    try {
+        const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map(String).filter((s) => s.trim().length > 0);
+    } catch {
+        return [];
+    }
+}
+
+function saveSearchHistory(arr) {
+    try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(arr));
+    } catch {
+        /* ignore */
+    }
+}
+
+function normalizeHistoryQuery(q) {
+    return String(q).trim().toLowerCase();
+}
+
+function recordSearchQuery(raw) {
+    const q = String(raw).trim();
+    if (!q) return;
+    const norm = normalizeHistoryQuery(q);
+    let list = loadSearchHistory();
+    list = list.filter((item) => normalizeHistoryQuery(item) !== norm);
+    list.unshift(q);
+    list = list.slice(0, 8);
+    saveSearchHistory(list);
+    renderSearchHistoryChips();
+    updateSearchHistoryVisibility();
+}
+
+function removeSearchHistoryItem(query) {
+    const norm = normalizeHistoryQuery(query);
+    const list = loadSearchHistory().filter((item) => normalizeHistoryQuery(item) !== norm);
+    saveSearchHistory(list);
+    renderSearchHistoryChips();
+    updateSearchHistoryVisibility();
+}
+
+function clearSearchHistory() {
+    saveSearchHistory([]);
+    renderSearchHistoryChips();
+    updateSearchHistoryVisibility();
+}
+
+function renderSearchHistoryChips() {
+    if (!searchHistoryChipsEl) return;
+    const list = loadSearchHistory();
+    searchHistoryChipsEl.innerHTML = '';
+    list.forEach((query) => {
+        const chip = document.createElement('div');
+        chip.className = 'search-history__chip';
+        const main = document.createElement('button');
+        main.type = 'button';
+        main.className = 'search-history__chip-main';
+        main.textContent = query;
+        main.title = query;
+        main.addEventListener('click', () => {
+            searchInput.value = query;
+            handleSearch();
+        });
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'search-history__chip-remove';
+        rm.setAttribute('aria-label', 'Удалить из истории');
+        rm.textContent = '✕';
+        rm.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeSearchHistoryItem(query);
+        });
+        chip.appendChild(main);
+        chip.appendChild(rm);
+        searchHistoryChipsEl.appendChild(chip);
+    });
+}
+
+function shouldShowSearchHistory() {
+    if (document.activeElement === searchInput) return true;
+    if (Array.isArray(filterBaseItems)) return true;
+    return false;
+}
+
+function updateSearchHistoryVisibility() {
+    if (!searchHistoryEl || !searchHistoryClearAllEl) return;
+    const list = loadSearchHistory();
+    const show = shouldShowSearchHistory() && list.length > 0;
+    searchHistoryEl.hidden = !show;
+    searchHistoryClearAllEl.hidden = !show;
+}
+
 function syncFavButton(btn, item) {
     const fav = isFavourite(item);
     btn.textContent = fav ? '♥' : '♡';
@@ -177,6 +277,7 @@ function rebuildResultsFromFilters(withBack, options = {}) {
 
     if (!Array.isArray(filterBaseItems)) {
         updateFilterBarVisibility();
+        updateSearchHistoryVisibility();
         return;
     }
 
@@ -230,6 +331,7 @@ function rebuildResultsFromFilters(withBack, options = {}) {
             msg.textContent = 'Ничего не найдено';
         }
         resultsEl.appendChild(msg);
+        updateSearchHistoryVisibility();
         return;
     }
 
@@ -240,6 +342,7 @@ function rebuildResultsFromFilters(withBack, options = {}) {
     filtered.forEach((item) => {
         resultsEl.appendChild(createCard(item));
     });
+    updateSearchHistoryVisibility();
 }
 
 function renderMovies(items, withBack = false, options = {}) {
@@ -641,6 +744,7 @@ async function loadRecommendations(item) {
     filterBaseItems = null;
     updateFilterBarVisibility();
     resultsEl.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Загрузка похожих...</p>';
+    updateSearchHistoryVisibility();
 
     try {
         const recs = await fetchRecommendations(item.id, item.media_type);
@@ -649,6 +753,7 @@ async function loadRecommendations(item) {
         filterBaseItems = null;
         updateFilterBarVisibility();
         resultsEl.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Ошибка при загрузке похожих.</p>';
+        updateSearchHistoryVisibility();
     }
 }
 
@@ -663,6 +768,7 @@ async function handleSearch() {
 
     try {
         const results = await searchMovies(query);
+        recordSearchQuery(query);
         renderMovies(results, false, { resetFilters: true });
     } catch (err) {
         filterBaseItems = null;
@@ -671,6 +777,7 @@ async function handleSearch() {
     } finally {
         searchBtn.textContent = 'Найти';
         searchBtn.disabled = false;
+        updateSearchHistoryVisibility();
     }
 }
 
@@ -703,8 +810,30 @@ if (themeToggle) {
     });
 }
 
+if (searchHistoryEl) {
+    searchHistoryEl.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.search-history__chip-remove')) return;
+        if (e.target.closest('.search-history__chip-main')) {
+            e.preventDefault();
+        }
+    });
+}
+
+if (searchHistoryClearAllEl) {
+    searchHistoryClearAllEl.addEventListener('click', clearSearchHistory);
+}
+
 favouritesBtn.addEventListener('click', openFavouritesPanel);
 searchBtn.addEventListener('click', handleSearch);
+
+searchInput.addEventListener('focus', () => {
+    renderSearchHistoryChips();
+    updateSearchHistoryVisibility();
+});
+
+searchInput.addEventListener('blur', () => {
+    setTimeout(updateSearchHistoryVisibility, 0);
+});
 
 searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') searchBtn.click();
@@ -725,3 +854,5 @@ document.addEventListener('keydown', (e) => {
 initTheme();
 updateFavouritesBar();
 syncFilterChips();
+renderSearchHistoryChips();
+updateSearchHistoryVisibility();
