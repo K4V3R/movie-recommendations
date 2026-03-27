@@ -72,6 +72,7 @@ const trendingListEl = document.getElementById('trendingList');
 const trendingRefreshBtn = document.getElementById('trendingRefresh');
 const sidebarGenreChips = document.getElementById('sidebarGenreChips');
 const resultsContextHeading = document.getElementById('resultsContextHeading');
+const randomMovieBtn = document.getElementById('randomMovieBtn');
 
 let previousResults = null;
 let autocompleteTimer = null;
@@ -1628,6 +1629,28 @@ document.addEventListener('keydown', (e) => {
 if (trendingRefreshBtn) {
     trendingRefreshBtn.setAttribute('aria-label', 'Обновить список новинок');
     trendingRefreshBtn.addEventListener('click', loadTrendingSidebar);
+}
+
+if (randomMovieBtn) {
+    randomMovieBtn.addEventListener('click', async () => {
+        randomMovieBtn.textContent = 'Загрузка...';
+        randomMovieBtn.disabled = true;
+        try {
+            const page = Math.floor(Math.random() * 10) + 1;
+            const url = `https://api.themoviedb.org/3/movie/popular?api_key=${API_KEY}&language=ru-RU&page=${page}`;
+            const response = await fetch(url);
+            const data = await response.json();
+            const list = (data.results || []).filter((r) => r && r.id);
+            if (!list.length) throw new Error('empty');
+            const item = list[Math.floor(Math.random() * list.length)];
+            await openMovieDetail({ ...item, media_type: 'movie' });
+        } catch {
+            /* nothing to show on error */
+        } finally {
+            randomMovieBtn.textContent = '🎲 Случайный фильм';
+            randomMovieBtn.disabled = false;
+        }
+    });
 }
 
 initTheme();

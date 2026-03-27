@@ -520,6 +520,37 @@ body {
     border: 1px solid rgba(108, 99, 255, 0.35);
 }
 
+.random-movie-bar {
+    margin-bottom: 16px;
+}
+
+.random-movie-btn {
+    padding: 10px 20px;
+    background: transparent;
+    border: 1.5px solid var(--accent);
+    border-radius: 10px;
+    color: var(--accent);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.1s;
+    white-space: nowrap;
+}
+
+.random-movie-btn:hover {
+    background: rgba(108, 99, 255, 0.12);
+}
+
+.random-movie-btn:active {
+    transform: scale(0.97);
+}
+
+.random-movie-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+}
+
 /* Search history */
 .search-history {
     margin-bottom: 16px;
