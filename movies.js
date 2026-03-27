@@ -484,31 +484,14 @@ function saveFavourites(arr) {
 }
 
 function isFavourite(item) {
-    let key;
-    try {
-        key = getItemKey(item);
-    } catch {
-        return false;
-    }
-    return loadFavourites().some((x) => {
-        try {
-            return getItemKey(x) === key;
-        } catch {
-            return false;
-        }
-    });
+    const key = getItemKey(item);
+    return loadFavourites().some((x) => getItemKey(x) === key);
 }
 
 function toggleFavourite(item) {
     const favs = loadFavourites();
     const key = getItemKey(item);
-    const idx = favs.findIndex((x) => {
-        try {
-            return getItemKey(x) === key;
-        } catch {
-            return false;
-        }
-    });
+    const idx = favs.findIndex((x) => getItemKey(x) === key);
     if (idx >= 0) {
         favs.splice(idx, 1);
     } else {
@@ -1409,8 +1392,23 @@ function createCard(item) {
         </div>
     `;
 
+    const shareBtn = card.querySelector('.share-btn');
+    shareBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleShareCard(item, shareBtn);
+    });
+
     const favBtn = card.querySelector('.fav-btn');
     syncFavButton(favBtn, item);
+    favBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleFavourite(item);
+        updateFavouritesBar();
+        syncFavButton(favBtn, item);
+        if (currentViewIsFavourites) {
+            renderMovies(loadFavourites(), true, { favouritesView: true });
+        }
+    });
 
     card.querySelector('.similar-btn').addEventListener('click', () => {
         loadRecommendations(item);
@@ -1418,25 +1416,6 @@ function createCard(item) {
 
     attachUserRatingRow(card, item);
     attachUserNoteBlock(card, item);
-
-    card.addEventListener('click', (e) => {
-        const shareHit = e.target.closest('.share-btn');
-        if (shareHit && card.contains(shareHit)) {
-            e.stopPropagation();
-            handleShareCard(item, shareHit);
-            return;
-        }
-        const favHit = e.target.closest('.fav-btn');
-        if (favHit && card.contains(favHit)) {
-            e.stopPropagation();
-            toggleFavourite(item);
-            updateFavouritesBar();
-            syncFavButton(favHit, item);
-            if (currentViewIsFavourites) {
-                renderMovies(loadFavourites(), true, { favouritesView: true });
-            }
-        }
-    });
 
     const detailType = getDetailMediaType(item);
     if (detailType) {
