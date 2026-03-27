@@ -1,6 +1,10 @@
 const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
 const RATINGS_STORAGE_KEY = "movieAppRatings";
+const NOTES_STORAGE_KEY = "movieAppNotes";
+const NOTE_DEBOUNCE_MS = 500;
+const NOTE_MAX_LENGTH = 200;
+const NOTE_PREVIEW_CHARS = 40;
 const THEME_STORAGE_KEY = "movieAppTheme";
 const HISTORY_STORAGE_KEY = "movieAppHistory";
 const AUTOCOMPLETE_MIN_CHARS = 2;
@@ -310,6 +314,158 @@ function attachUserRatingRow(card, item) {
 
     movieRatingEl.insertAdjacentElement('afterend', row);
     paintStars();
+}
+
+let notesMapCache = null;
+
+function getNotesMap() {
+    if (notesMapCache === null) {
+        try {
+            const raw = localStorage.getItem(NOTES_STORAGE_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            notesMapCache =
+                parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch {
+            notesMapCache = {};
+        }
+    }
+    return notesMapCache;
+}
+
+function getUserNote(item) {
+    const v = getNotesMap()[getItemKey(item)];
+    return typeof v === 'string' ? v : '';
+}
+
+function persistUserNote(item, text) {
+    const key = getItemKey(item);
+    const map = getNotesMap();
+    const trimmed = text.trim();
+    if (trimmed === '') {
+        delete map[key];
+    } else {
+        map[key] = text.slice(0, NOTE_MAX_LENGTH);
+    }
+    try {
+        localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(map));
+    } catch {
+        /* ignore */
+    }
+}
+
+function notePreviewText(full) {
+    if (!full) return '';
+    if (full.length <= NOTE_PREVIEW_CHARS) return full;
+    return `${full.slice(0, NOTE_PREVIEW_CHARS)}…`;
+}
+
+function attachUserNoteBlock(card, item) {
+    const anchor = card.querySelector('.user-rating');
+    if (!anchor) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'user-note';
+
+    const triggerRow = document.createElement('div');
+    triggerRow.className = 'user-note__trigger-row';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'user-note__toggle';
+    toggleBtn.textContent = '📝';
+    toggleBtn.setAttribute('aria-label', 'Показать или скрыть заметку');
+    toggleBtn.setAttribute('aria-expanded', 'false');
+
+    const previewEl = document.createElement('span');
+    previewEl.className = 'user-note__preview';
+
+    const panel = document.createElement('div');
+    panel.className = 'user-note__panel';
+    panel.hidden = true;
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'user-note__input';
+    textarea.setAttribute('maxlength', String(NOTE_MAX_LENGTH));
+    textarea.setAttribute('placeholder', 'Ваша заметка...');
+    textarea.setAttribute('aria-label', 'Текст заметки');
+    textarea.rows = 1;
+    textarea.value = getUserNote(item);
+
+    panel.appendChild(textarea);
+
+    triggerRow.appendChild(toggleBtn);
+    triggerRow.appendChild(previewEl);
+    wrap.appendChild(triggerRow);
+    wrap.appendChild(panel);
+
+    let debounceTimer = null;
+    let panelOpen = false;
+
+    function autoResizeTextarea() {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+
+    function syncNoteChrome() {
+        const saved = getUserNote(item);
+        const has = saved.length > 0;
+        toggleBtn.classList.toggle('is-active', has);
+        if (!panelOpen && has) {
+            previewEl.textContent = notePreviewText(saved);
+            previewEl.hidden = false;
+        } else {
+            previewEl.textContent = '';
+            previewEl.hidden = true;
+        }
+    }
+
+    function flushNoteToStorage() {
+        persistUserNote(item, textarea.value);
+        syncNoteChrome();
+    }
+
+    function scheduleNoteSave() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            debounceTimer = null;
+            flushNoteToStorage();
+        }, NOTE_DEBOUNCE_MS);
+    }
+
+    textarea.addEventListener('input', () => {
+        const over = textarea.value.length > NOTE_MAX_LENGTH;
+        if (over) {
+            textarea.value = textarea.value.slice(0, NOTE_MAX_LENGTH);
+        }
+        autoResizeTextarea();
+        scheduleNoteSave();
+    });
+
+    toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        panelOpen = !panelOpen;
+        panel.hidden = !panelOpen;
+        toggleBtn.setAttribute('aria-expanded', panelOpen ? 'true' : 'false');
+        if (panelOpen) {
+            textarea.value = getUserNote(item);
+            previewEl.hidden = true;
+            autoResizeTextarea();
+            textarea.focus();
+        } else {
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+                debounceTimer = null;
+                flushNoteToStorage();
+            }
+            syncNoteChrome();
+        }
+    });
+
+    anchor.insertAdjacentElement('afterend', wrap);
+    syncNoteChrome();
+    if (textarea.value) {
+        requestAnimationFrame(() => autoResizeTextarea());
+    }
 }
 
 function loadFavourites() {
@@ -1259,6 +1415,7 @@ function createCard(item) {
     });
 
     attachUserRatingRow(card, item);
+    attachUserNoteBlock(card, item);
 
     const detailType = getDetailMediaType(item);
     if (detailType) {

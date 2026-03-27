@@ -885,6 +885,97 @@ body {
     display: none;
 }
 
+.user-note {
+    margin-bottom: 10px;
+}
+
+.user-note__trigger-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.user-note__toggle {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-hover);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: border-color 0.2s, background 0.2s, color 0.2s, transform 0.1s;
+}
+
+.user-note__toggle:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.user-note__toggle.is-active {
+    background: rgba(108, 99, 255, 0.18);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.user-note__toggle:active {
+    transform: scale(0.96);
+}
+
+.user-note__preview {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-note__panel {
+    margin-top: 8px;
+}
+
+.user-note__panel[hidden] {
+    display: none;
+}
+
+.user-note__input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-hover);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    resize: none;
+    overflow: hidden;
+    min-height: 2.75rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.user-note__input::placeholder {
+    color: var(--text-muted);
+}
+
+.user-note__input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.2);
+}
+
+[data-theme="light"] .user-note__input:focus {
+    box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.25);
+}
+
 .movie-desc {
     font-size: 0.88rem;
     color: var(--text-secondary);
