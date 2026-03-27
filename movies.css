@@ -300,11 +300,16 @@ body {
     transform: scale(0.94);
 }
 
+.top-bar-btns {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
 .favourites-bar-btn {
-    display: block;
-    width: 100%;
-    max-width: 320px;
-    margin: 0 auto 20px;
+    flex: 1;
+    max-width: 240px;
     padding: 12px 20px;
     background: var(--surface);
     border: 1px solid var(--border);
@@ -323,6 +328,10 @@ body {
 
 .favourites-bar-btn:active {
     transform: scale(0.98);
+}
+
+.watched-bar-btn {
+    border-color: rgba(108, 99, 255, 0.35);
 }
 
 /* Search box */
@@ -749,8 +758,13 @@ body {
     box-shadow: 0 8px 32px rgba(108, 99, 255, 0.12);
 }
 
-.movie-poster {
+.movie-poster-wrap {
     flex-shrink: 0;
+    position: relative;
+    width: 72px;
+}
+
+.movie-poster {
     width: 72px;
     height: 108px;
     background: var(--surface-hover);
@@ -781,7 +795,8 @@ body {
 }
 
 .fav-btn,
-.share-btn {
+.share-btn,
+.watched-btn {
     padding: 4px 8px;
     background: transparent;
     border: none;
@@ -793,7 +808,8 @@ body {
 }
 
 .fav-btn:hover,
-.share-btn:hover {
+.share-btn:hover,
+.watched-btn:hover {
     color: var(--accent);
 }
 
@@ -801,13 +817,48 @@ body {
     color: #e2556a;
 }
 
+.watched-btn {
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.watched-btn.is-watched {
+    color: #3dba7a;
+}
+
 .share-btn--done {
     color: var(--accent);
 }
 
 .fav-btn:active,
-.share-btn:active {
+.share-btn:active,
+.watched-btn:active {
     transform: scale(0.92);
+}
+
+.watched-badge {
+    display: none;
+    margin-top: 6px;
+    padding: 3px 6px;
+    background: rgba(61, 186, 122, 0.14);
+    border: 1px solid rgba(61, 186, 122, 0.45);
+    border-radius: 6px;
+    color: #3dba7a;
+    font-size: 0.65rem;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.watched-badge.is-visible {
+    display: block;
+}
+
+[data-theme="light"] .watched-badge {
+    background: rgba(61, 186, 122, 0.12);
+    border-color: rgba(61, 186, 122, 0.45);
 }
 
 .movie-info {
@@ -1325,6 +1376,10 @@ body {
     .movie-card {
         flex-direction: column;
         gap: 16px;
+    }
+
+    .movie-poster-wrap {
+        width: 56px;
     }
 
     .movie-poster {

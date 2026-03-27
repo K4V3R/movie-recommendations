@@ -1,5 +1,6 @@
 const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
+const WATCHED_STORAGE_KEY = "movieAppWatched";
 const RATINGS_STORAGE_KEY = "movieAppRatings";
 const NOTES_STORAGE_KEY = "movieAppNotes";
 const NOTE_DEBOUNCE_MS = 500;
@@ -59,6 +60,7 @@ const searchBtn = document.getElementById('searchBtn');
 const searchInput = document.getElementById('searchInput');
 const resultsEl = document.getElementById('results');
 const favouritesBtn = document.getElementById('favouritesBtn');
+const watchedBtn = document.getElementById('watchedBtn');
 const filterBar = document.getElementById('filterBar');
 const detailModal = document.getElementById('detailModal');
 const detailModalContent = document.getElementById('detailModalContent');
@@ -82,6 +84,7 @@ let lastRenderedItems = [];
 let lastRenderedWithBack = false;
 let viewSnapshotBeforeFavourites = null;
 let currentViewIsFavourites = false;
+let currentViewIsWatched = false;
 
 let filterBaseItems = null;
 let filterType = 'all';
@@ -506,6 +509,72 @@ function updateFavouritesBar() {
     favouritesBtn.textContent = `Избранное (${n})`;
 }
 
+function loadWatched() {
+    try {
+        const raw = localStorage.getItem(WATCHED_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveWatched(arr) {
+    localStorage.setItem(WATCHED_STORAGE_KEY, JSON.stringify(arr));
+}
+
+function isWatched(item) {
+    const key = getItemKey(item);
+    return loadWatched().some((x) => {
+        try { return getItemKey(x) === key; } catch { return false; }
+    });
+}
+
+function toggleWatched(item) {
+    const list = loadWatched();
+    const key = getItemKey(item);
+    const idx = list.findIndex((x) => {
+        try { return getItemKey(x) === key; } catch { return false; }
+    });
+    if (idx >= 0) {
+        list.splice(idx, 1);
+    } else {
+        list.push(JSON.parse(JSON.stringify(item)));
+    }
+    saveWatched(list);
+}
+
+function updateWatchedBar() {
+    if (!watchedBtn) return;
+    const n = loadWatched().length;
+    watchedBtn.textContent = `Смотрел (${n})`;
+}
+
+function syncWatchedButton(btn, item) {
+    const watched = isWatched(item);
+    btn.classList.toggle('is-watched', watched);
+    btn.setAttribute('aria-label', watched ? 'Убрать из просмотренных' : 'Отметить как просмотренное');
+}
+
+function syncWatchedBadge(card, item) {
+    const badge = card.querySelector('.watched-badge');
+    if (!badge) return;
+    badge.classList.toggle('is-visible', isWatched(item));
+}
+
+function openWatchedPanel() {
+    clearGenreBrowserState();
+    viewSnapshotBeforeFavourites = {
+        filterBaseItems: Array.isArray(filterBaseItems) ? filterBaseItems.slice() : [],
+        filterType,
+        filterMinRating,
+        withBack: lastRenderedWithBack,
+        previousResults,
+    };
+    renderMovies(loadWatched(), true, { watchedView: true });
+}
+
 function getStoredTheme() {
     try {
         return localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
@@ -675,7 +744,9 @@ function updateFilterBarVisibility() {
 
 function rebuildResultsFromFilters(withBack, options = {}) {
     const favouritesView = options.favouritesView === true;
+    const watchedView = options.watchedView === true;
     currentViewIsFavourites = favouritesView;
+    currentViewIsWatched = watchedView;
 
     activeRenderWithBack = withBack;
     activeRenderOptions = options;
@@ -689,7 +760,7 @@ function rebuildResultsFromFilters(withBack, options = {}) {
     const filtered = applyItemFilters(filterBaseItems);
     const noMatchFilters = filterBaseItems.length > 0 && filtered.length === 0;
 
-    if (!favouritesView) {
+    if (!favouritesView && !watchedView) {
         lastRenderedItems = filtered;
         lastRenderedWithBack = withBack;
     }
@@ -715,6 +786,17 @@ function rebuildResultsFromFilters(withBack, options = {}) {
                     syncFilterChips();
                     rebuildResultsFromFilters(snap.withBack, { favouritesView: false });
                 }
+            } else if (watchedView) {
+                const snap = viewSnapshotBeforeFavourites;
+                viewSnapshotBeforeFavourites = null;
+                if (snap) {
+                    previousResults = snap.previousResults;
+                    filterBaseItems = snap.filterBaseItems.slice();
+                    filterType = snap.filterType;
+                    filterMinRating = snap.filterMinRating;
+                    syncFilterChips();
+                    rebuildResultsFromFilters(snap.withBack, { watchedView: false });
+                }
             } else {
                 renderMovies(previousResults);
                 previousResults = null;
@@ -730,6 +812,8 @@ function rebuildResultsFromFilters(withBack, options = {}) {
             msg.textContent = 'Нет результатов с такими фильтрами.';
         } else if (favouritesView) {
             msg.textContent = 'Список избранного пуст';
+        } else if (watchedView) {
+            msg.textContent = 'Список просмотренного пуст';
         } else if (withBack) {
             msg.textContent = 'Похожих фильмов не найдено.';
         } else {
@@ -752,8 +836,8 @@ function rebuildResultsFromFilters(withBack, options = {}) {
 }
 
 function renderMovies(items, withBack = false, options = {}) {
-    const { favouritesView = false, resetFilters = false } = options;
-    if (favouritesView || withBack) {
+    const { favouritesView = false, watchedView = false, resetFilters = false } = options;
+    if (favouritesView || watchedView || withBack) {
         resetSearchPagination();
     }
     filterBaseItems = Array.isArray(items) ? items.slice() : [];
@@ -762,7 +846,7 @@ function renderMovies(items, withBack = false, options = {}) {
         filterMinRating = 0;
     }
     syncFilterChips();
-    rebuildResultsFromFilters(withBack, { favouritesView });
+    rebuildResultsFromFilters(withBack, { favouritesView, watchedView });
 }
 
 async function searchMoviesPage(query, page) {
@@ -1376,10 +1460,14 @@ function createCard(item) {
     card.innerHTML = `
         <div class="card-actions">
             <button type="button" class="share-btn" aria-label="Поделиться">🔗</button>
+            <button type="button" class="watched-btn" aria-label="Отметить как просмотренное">✓</button>
             <button type="button" class="fav-btn" aria-label="Добавить в избранное">♡</button>
         </div>
-        <div class="movie-poster">
-            ${posterUrl ? `<img src="${posterUrl}" alt="${title}">` : '🎬'}
+        <div class="movie-poster-wrap">
+            <div class="movie-poster">
+                ${posterUrl ? `<img src="${posterUrl}" alt="${title}">` : '🎬'}
+            </div>
+            <span class="watched-badge" aria-hidden="true">✓ Просмотрено</span>
         </div>
         <div class="movie-info">
             <h2 class="movie-title">${title}</h2>
@@ -1408,6 +1496,20 @@ function createCard(item) {
         syncFavButton(favBtn, item);
         if (currentViewIsFavourites) {
             renderMovies(loadFavourites(), true, { favouritesView: true });
+        }
+    });
+
+    const watchedBtnEl = card.querySelector('.watched-btn');
+    syncWatchedButton(watchedBtnEl, item);
+    syncWatchedBadge(card, item);
+    watchedBtnEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleWatched(item);
+        updateWatchedBar();
+        syncWatchedButton(watchedBtnEl, item);
+        syncWatchedBadge(card, item);
+        if (currentViewIsWatched) {
+            renderMovies(loadWatched(), true, { watchedView: true });
         }
     });
 
@@ -1582,6 +1684,7 @@ document.addEventListener('mousedown', (e) => {
 });
 
 favouritesBtn.addEventListener('click', openFavouritesPanel);
+if (watchedBtn) watchedBtn.addEventListener('click', openWatchedPanel);
 searchBtn.addEventListener('click', handleSearch);
 
 searchInput.addEventListener('input', () => {
@@ -1655,6 +1758,7 @@ if (randomMovieBtn) {
 
 initTheme();
 updateFavouritesBar();
+updateWatchedBar();
 syncFilterChips();
 renderSearchHistoryChips();
 updateSearchHistoryVisibility();
