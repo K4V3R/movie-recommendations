@@ -6,6 +6,7 @@ const AUTOCOMPLETE_MIN_CHARS = 2;
 const AUTOCOMPLETE_DEBOUNCE_MS = 350;
 const AUTOCOMPLETE_MAX_ITEMS = 6;
 const TRENDING_SIDEBAR_LIMIT = 10;
+const SEARCH_MAX_PAGES = 5;
 
 const GENRE_MAP = {
     28: 'Боевик',
@@ -67,6 +68,37 @@ let filterType = 'all';
 let filterMinRating = 0;
 let activeRenderWithBack = false;
 let activeRenderOptions = {};
+
+let searchPaginationQuery = null;
+let searchTotalPages = 0;
+let searchCurrentPage = 0;
+
+function resetSearchPagination() {
+    searchPaginationQuery = null;
+    searchTotalPages = 0;
+    searchCurrentPage = 0;
+}
+
+function removeLoadMoreButton() {
+    const existing = resultsEl.querySelector('.load-more-btn');
+    if (existing) existing.remove();
+}
+
+function updateSearchLoadMoreButton() {
+    removeLoadMoreButton();
+    if (currentViewIsFavourites || activeRenderWithBack) return;
+    if (!searchPaginationQuery || searchTotalPages <= 1) return;
+    if (!filterBaseItems || filterBaseItems.length === 0) return;
+    const maxPage = Math.min(searchTotalPages, SEARCH_MAX_PAGES);
+    if (searchCurrentPage >= maxPage) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'load-more-btn';
+    btn.textContent = 'Загрузить ещё';
+    btn.addEventListener('click', handleLoadMoreSearch);
+    resultsEl.appendChild(btn);
+}
 
 function getItemKey(item) {
     const mt = item.media_type || 'movie';
@@ -351,11 +383,15 @@ function rebuildResultsFromFilters(withBack, options = {}) {
     filtered.forEach((item) => {
         resultsEl.appendChild(createCard(item));
     });
+    updateSearchLoadMoreButton();
     updateSearchHistoryVisibility();
 }
 
 function renderMovies(items, withBack = false, options = {}) {
     const { favouritesView = false, resetFilters = false } = options;
+    if (favouritesView || withBack) {
+        resetSearchPagination();
+    }
     filterBaseItems = Array.isArray(items) ? items.slice() : [];
     if (resetFilters) {
         filterType = 'all';
@@ -365,11 +401,54 @@ function renderMovies(items, withBack = false, options = {}) {
     rebuildResultsFromFilters(withBack, { favouritesView });
 }
 
-async function searchMovies(query) {
-    const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(query)}&language=ru-RU`;
+async function searchMoviesPage(query, page) {
+    const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(query)}&language=ru-RU&page=${page}`;
     const response = await fetch(url);
     const data = await response.json();
-    return data.results;
+    return {
+        results: data.results || [],
+        total_pages: typeof data.total_pages === 'number' ? data.total_pages : 1,
+    };
+}
+
+async function searchMovies(query) {
+    const { results } = await searchMoviesPage(query, 1);
+    return results;
+}
+
+async function handleLoadMoreSearch() {
+    const btn = resultsEl.querySelector('.load-more-btn');
+    if (!btn || !searchPaginationQuery) return;
+    const nextPage = searchCurrentPage + 1;
+    const maxPage = Math.min(searchTotalPages, SEARCH_MAX_PAGES);
+    if (nextPage > maxPage) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Загрузка...';
+
+    try {
+        const { results: newResults } = await searchMoviesPage(searchPaginationQuery, nextPage);
+        const beforeFilter = applyItemFilters(filterBaseItems);
+        const prevKeys = new Set(beforeFilter.map((i) => getItemKey(i)));
+        filterBaseItems = filterBaseItems.concat(newResults);
+        searchCurrentPage = nextPage;
+        const fullFiltered = applyItemFilters(filterBaseItems);
+        fullFiltered.forEach((item) => {
+            item._sourceResults = fullFiltered;
+        });
+        lastRenderedItems = fullFiltered;
+
+        const toAppend = fullFiltered.filter((i) => !prevKeys.has(getItemKey(i)));
+
+        btn.remove();
+        toAppend.forEach((item) => {
+            resultsEl.appendChild(createCard(item));
+        });
+        updateSearchLoadMoreButton();
+    } catch {
+        btn.disabled = false;
+        btn.textContent = 'Загрузить ещё';
+    }
 }
 
 async function fetchTrendingWeekItems() {
@@ -857,6 +936,67 @@ function buildMovieMetaHtml(year, genreTags) {
     return `<div class="movie-meta">${parts.join('')}</div>`;
 }
 
+function getTmdbPublicUrl(item) {
+    const mt = item.media_type;
+    if (mt === 'tv') return `https://www.themoviedb.org/tv/${item.id}`;
+    if (mt === 'movie') return `https://www.themoviedb.org/movie/${item.id}`;
+    if (mt === 'person') return `https://www.themoviedb.org/person/${item.id}`;
+    if (item.name != null && item.title == null) return `https://www.themoviedb.org/tv/${item.id}`;
+    return `https://www.themoviedb.org/movie/${item.id}`;
+}
+
+function shareTextSnippet(text, maxLen) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (t.length <= maxLen) return t;
+    return `${t.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+async function handleShareCard(item, shareBtn) {
+    const url = getTmdbPublicUrl(item);
+    const title = item.title || item.name || 'Кинобаза TMDb';
+    const desc = shareTextSnippet(item.overview || '', 100);
+
+    const showCopiedFeedback = () => {
+        const prevLabel = shareBtn.getAttribute('aria-label') || 'Поделиться';
+        shareBtn.textContent = '✓';
+        shareBtn.classList.add('share-btn--done');
+        shareBtn.setAttribute('aria-label', 'Ссылка скопирована');
+        setTimeout(() => {
+            shareBtn.textContent = '🔗';
+            shareBtn.classList.remove('share-btn--done');
+            shareBtn.setAttribute('aria-label', prevLabel);
+        }, 1500);
+    };
+
+    const tryClipboard = async () => {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(url);
+            showCopiedFeedback();
+            return true;
+        }
+        return false;
+    };
+
+    try {
+        if (typeof navigator.share === 'function') {
+            await navigator.share({
+                title,
+                text: desc || title,
+                url,
+            });
+            return;
+        }
+    } catch (err) {
+        if (err && err.name === 'AbortError') return;
+    }
+
+    try {
+        await tryClipboard();
+    } catch {
+        /* ignore */
+    }
+}
+
 function createCard(item) {
     const title = item.title || item.name || 'Без названия';
     const rating = item.vote_average ? item.vote_average.toFixed(1) : '—';
@@ -870,7 +1010,10 @@ function createCard(item) {
     card.className = 'movie-card';
 
     card.innerHTML = `
-        <button type="button" class="fav-btn" aria-label="Добавить в избранное">♡</button>
+        <div class="card-actions">
+            <button type="button" class="share-btn" aria-label="Поделиться">🔗</button>
+            <button type="button" class="fav-btn" aria-label="Добавить в избранное">♡</button>
+        </div>
         <div class="movie-poster">
             ${posterUrl ? `<img src="${posterUrl}" alt="${title}">` : '🎬'}
         </div>
@@ -885,6 +1028,12 @@ function createCard(item) {
             <button type="button" class="similar-btn">Похожие</button>
         </div>
     `;
+
+    const shareBtn = card.querySelector('.share-btn');
+    shareBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleShareCard(item, shareBtn);
+    });
 
     const favBtn = card.querySelector('.fav-btn');
     syncFavButton(favBtn, item);
@@ -955,6 +1104,7 @@ function openFavouritesPanel() {
 async function loadRecommendations(item) {
     previousResults = item._sourceResults;
 
+    resetSearchPagination();
     filterBaseItems = null;
     updateFilterBarVisibility();
     resultsEl.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Загрузка похожих...</p>';
@@ -976,16 +1126,21 @@ async function handleSearch() {
     const query = searchInput.value.trim();
     if (!query) return;
 
+    resetSearchPagination();
     searchBtn.textContent = 'Загрузка...';
     searchBtn.disabled = true;
     previousResults = null;
     viewSnapshotBeforeFavourites = null;
 
     try {
-        const results = await searchMovies(query);
+        const { results, total_pages } = await searchMoviesPage(query, 1);
+        searchPaginationQuery = query;
+        searchTotalPages = total_pages;
+        searchCurrentPage = 1;
         recordSearchQuery(query);
         renderMovies(results, false, { resetFilters: true });
     } catch (err) {
+        resetSearchPagination();
         filterBaseItems = null;
         updateFilterBarVisibility();
         resultsEl.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Ошибка при загрузке. Проверьте API ключ.</p>';
@@ -1000,11 +1155,13 @@ filterBar.addEventListener('click', (e) => {
     const typeBtn = e.target.closest('[data-filter-type]');
     const ratingBtn = e.target.closest('[data-filter-rating]');
     if (typeBtn) {
+        resetSearchPagination();
         filterType = typeBtn.dataset.filterType;
         syncFilterChips();
         rebuildResultsFromFilters(activeRenderWithBack, activeRenderOptions);
     }
     if (ratingBtn) {
+        resetSearchPagination();
         filterMinRating = parseInt(ratingBtn.dataset.filterRating, 10) || 0;
         syncFilterChips();
         rebuildResultsFromFilters(activeRenderWithBack, activeRenderOptions);
