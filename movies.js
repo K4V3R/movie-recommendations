@@ -2,6 +2,10 @@ const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
 const THEME_STORAGE_KEY = "movieAppTheme";
 const HISTORY_STORAGE_KEY = "movieAppHistory";
+const AUTOCOMPLETE_MIN_CHARS = 2;
+const AUTOCOMPLETE_DEBOUNCE_MS = 350;
+const AUTOCOMPLETE_MAX_ITEMS = 6;
+const TRENDING_SIDEBAR_LIMIT = 10;
 
 const GENRE_MAP = {
     28: 'Боевик',
@@ -45,8 +49,13 @@ const themeToggle = document.getElementById('themeToggle');
 const searchHistoryEl = document.getElementById('searchHistory');
 const searchHistoryChipsEl = document.getElementById('searchHistoryChips');
 const searchHistoryClearAllEl = document.getElementById('searchHistoryClearAll');
+const searchSuggestEl = document.getElementById('searchSuggest');
+const trendingListEl = document.getElementById('trendingList');
+const trendingRefreshBtn = document.getElementById('trendingRefresh');
 
 let previousResults = null;
+let autocompleteTimer = null;
+let suggestRequestId = 0;
 let detailModalCloseTimer = null;
 let lastRenderedItems = [];
 let lastRenderedWithBack = false;
@@ -361,6 +370,211 @@ async function searchMovies(query) {
     const response = await fetch(url);
     const data = await response.json();
     return data.results;
+}
+
+async function fetchTrendingWeekItems() {
+    const url = `https://api.themoviedb.org/3/trending/all/week?api_key=${API_KEY}&language=ru-RU`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const raw = data.results || [];
+    const filtered = raw.filter((r) => r.media_type === 'movie' || r.media_type === 'tv');
+    return filtered.slice(0, TRENDING_SIDEBAR_LIMIT);
+}
+
+function renderTrendingSidebar(items) {
+    if (!trendingListEl) return;
+    trendingListEl.innerHTML = '';
+    items.forEach((item) => {
+        const title = item.title || item.name || '';
+        if (!title) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sidebar-card';
+
+        const thumb = document.createElement('div');
+        thumb.className = 'sidebar-card__thumb';
+        if (item.poster_path) {
+            const img = document.createElement('img');
+            img.src = `https://image.tmdb.org/t/p/w92${item.poster_path}`;
+            img.alt = '';
+            thumb.appendChild(img);
+        } else {
+            thumb.textContent = '🎬';
+        }
+
+        const body = document.createElement('div');
+        body.className = 'sidebar-card__body';
+        const titleEl = document.createElement('span');
+        titleEl.className = 'sidebar-card__title';
+        titleEl.textContent = title;
+
+        const meta = document.createElement('div');
+        meta.className = 'sidebar-card__meta';
+        const yearStr = getReleaseYear(item);
+        if (yearStr) {
+            const y = document.createElement('span');
+            y.textContent = yearStr;
+            meta.appendChild(y);
+        }
+        const rating =
+            item.vote_average != null && !Number.isNaN(item.vote_average)
+                ? Number(item.vote_average).toFixed(1)
+                : null;
+        if (rating != null) {
+            const r = document.createElement('span');
+            r.className = 'sidebar-card__rating';
+            r.textContent = `★ ${rating}`;
+            meta.appendChild(r);
+        }
+
+        body.appendChild(titleEl);
+        body.appendChild(meta);
+        btn.appendChild(thumb);
+        btn.appendChild(body);
+        btn.addEventListener('click', () => openMovieDetail(item));
+        trendingListEl.appendChild(btn);
+    });
+}
+
+async function loadTrendingSidebar() {
+    if (!trendingListEl) return;
+    trendingListEl.innerHTML = '<p class="sidebar__loading">Загрузка...</p>';
+    try {
+        const items = await fetchTrendingWeekItems();
+        if (!items.length) {
+            trendingListEl.innerHTML = '<p class="sidebar__error">Нет данных.</p>';
+            return;
+        }
+        renderTrendingSidebar(items);
+    } catch {
+        trendingListEl.innerHTML = '<p class="sidebar__error">Не удалось загрузить.</p>';
+    }
+}
+
+async function fetchSearchSuggestions(query) {
+    const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(query)}&language=ru-RU&page=1`;
+    const response = await fetch(url);
+    const data = await response.json();
+    const list = data.results || [];
+    return list.slice(0, AUTOCOMPLETE_MAX_ITEMS);
+}
+
+function hideSearchSuggest() {
+    if (!searchSuggestEl) return;
+    searchSuggestEl.hidden = true;
+    searchSuggestEl.innerHTML = '';
+    if (searchInput) searchInput.setAttribute('aria-expanded', 'false');
+}
+
+function setSearchSuggestOpen(open) {
+    if (searchInput) searchInput.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function getSuggestDisplayTitle(item) {
+    return item.title || item.name || '';
+}
+
+function getSuggestMediaBadgeLabel(item) {
+    if (item.media_type === 'movie') return 'Фильм';
+    if (item.media_type === 'tv') return 'Сериал';
+    return 'Персона';
+}
+
+function getSuggestThumbUrl(item) {
+    const path = item.poster_path || item.profile_path;
+    if (!path) return null;
+    return `https://image.tmdb.org/t/p/w92${path}`;
+}
+
+function renderSuggestList(results) {
+    if (!searchSuggestEl) return;
+    searchSuggestEl.innerHTML = '';
+    results.forEach((item) => {
+        const title = getSuggestDisplayTitle(item);
+        if (!title) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'search-suggest__item';
+        btn.setAttribute('role', 'option');
+
+        const thumb = document.createElement('div');
+        thumb.className = 'search-suggest__thumb';
+        const thumbUrl = getSuggestThumbUrl(item);
+        if (thumbUrl) {
+            const img = document.createElement('img');
+            img.src = thumbUrl;
+            img.alt = '';
+            thumb.appendChild(img);
+        } else {
+            thumb.textContent = item.media_type === 'person' ? '👤' : '🎬';
+        }
+
+        const body = document.createElement('div');
+        body.className = 'search-suggest__body';
+        const t = document.createElement('span');
+        t.className = 'search-suggest__title';
+        t.textContent = title;
+        const meta = document.createElement('div');
+        meta.className = 'search-suggest__meta';
+        const yearStr = getReleaseYear(item);
+        if (yearStr) {
+            const y = document.createElement('span');
+            y.className = 'search-suggest__year';
+            y.textContent = yearStr;
+            meta.appendChild(y);
+        }
+        const badge = document.createElement('span');
+        badge.className = 'search-suggest__badge';
+        badge.textContent = getSuggestMediaBadgeLabel(item);
+        meta.appendChild(badge);
+        body.appendChild(t);
+        body.appendChild(meta);
+
+        btn.appendChild(thumb);
+        btn.appendChild(body);
+        btn.addEventListener('click', () => {
+            hideSearchSuggest();
+            searchInput.value = title;
+            handleSearch();
+        });
+        searchSuggestEl.appendChild(btn);
+    });
+    if (!searchSuggestEl.children.length) {
+        hideSearchSuggest();
+        return;
+    }
+    searchSuggestEl.hidden = false;
+    setSearchSuggestOpen(true);
+}
+
+async function runSuggestFetch(query) {
+    const myId = ++suggestRequestId;
+    try {
+        const results = await fetchSearchSuggestions(query);
+        if (myId !== suggestRequestId) return;
+        const current = searchInput.value.trim();
+        if (current.length < AUTOCOMPLETE_MIN_CHARS || current !== query.trim()) {
+            hideSearchSuggest();
+            return;
+        }
+        if (!results.length) {
+            hideSearchSuggest();
+            return;
+        }
+        renderSuggestList(results);
+    } catch {
+        if (myId === suggestRequestId) hideSearchSuggest();
+    }
+}
+
+function scheduleSuggestFetch() {
+    if (autocompleteTimer) clearTimeout(autocompleteTimer);
+    const q = searchInput.value.trim();
+    if (q.length < AUTOCOMPLETE_MIN_CHARS) {
+        hideSearchSuggest();
+        return;
+    }
+    autocompleteTimer = setTimeout(() => runSuggestFetch(q), AUTOCOMPLETE_DEBOUNCE_MS);
 }
 
 async function fetchRecommendations(id, mediaType) {
@@ -758,6 +972,7 @@ async function loadRecommendations(item) {
 }
 
 async function handleSearch() {
+    hideSearchSuggest();
     const query = searchInput.value.trim();
     if (!query) return;
 
@@ -823,12 +1038,32 @@ if (searchHistoryClearAllEl) {
     searchHistoryClearAllEl.addEventListener('click', clearSearchHistory);
 }
 
+if (searchSuggestEl) {
+    searchSuggestEl.addEventListener('mousedown', (e) => {
+        if (e.target === searchSuggestEl) return;
+        if (e.target.closest('.search-suggest__item')) {
+            e.preventDefault();
+        }
+    });
+}
+
+document.addEventListener('mousedown', (e) => {
+    if (!searchSuggestEl || searchSuggestEl.hidden) return;
+    if (e.target.closest('.search-box__wrap')) return;
+    hideSearchSuggest();
+});
+
 favouritesBtn.addEventListener('click', openFavouritesPanel);
 searchBtn.addEventListener('click', handleSearch);
+
+searchInput.addEventListener('input', () => {
+    scheduleSuggestFetch();
+});
 
 searchInput.addEventListener('focus', () => {
     renderSearchHistoryChips();
     updateSearchHistoryVisibility();
+    scheduleSuggestFetch();
 });
 
 searchInput.addEventListener('blur', () => {
@@ -836,6 +1071,13 @@ searchInput.addEventListener('blur', () => {
 });
 
 searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        if (searchSuggestEl && !searchSuggestEl.hidden) {
+            e.preventDefault();
+            hideSearchSuggest();
+            return;
+        }
+    }
     if (e.key === 'Enter') searchBtn.click();
 });
 
@@ -846,13 +1088,24 @@ detailModal.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !detailModal.hasAttribute('hidden')) {
+    if (e.key !== 'Escape') return;
+    if (!detailModal.hasAttribute('hidden')) {
         closeDetailModal();
+        return;
+    }
+    if (searchSuggestEl && !searchSuggestEl.hidden) {
+        hideSearchSuggest();
     }
 });
+
+if (trendingRefreshBtn) {
+    trendingRefreshBtn.setAttribute('aria-label', 'Обновить список новинок');
+    trendingRefreshBtn.addEventListener('click', loadTrendingSidebar);
+}
 
 initTheme();
 updateFavouritesBar();
 syncFilterChips();
 renderSearchHistoryChips();
 updateSearchHistoryVisibility();
+loadTrendingSidebar();

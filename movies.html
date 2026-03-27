@@ -7,7 +7,8 @@
     <link rel="stylesheet" href="movies.css">
 </head>
 <body>
-    <div class="container">
+    <div class="page-layout">
+    <div class="page-layout__main">
         <header class="page-header">
             <span class="page-header__spacer" aria-hidden="true"></span>
             <h1>Рекомендации фильмов</h1>
@@ -17,7 +18,10 @@
         <button type="button" class="favourites-bar-btn" id="favouritesBtn">Избранное (0)</button>
 
         <div class="search-box">
-            <input type="text" id="searchInput" placeholder="Введите фильм или сериал">
+            <div class="search-box__wrap">
+                <input type="text" id="searchInput" placeholder="Введите фильм или сериал" autocomplete="off" aria-autocomplete="list" aria-controls="searchSuggest" aria-expanded="false">
+                <div class="search-suggest" id="searchSuggest" hidden role="listbox" aria-label="Подсказки поиска"></div>
+            </div>
             <button id="searchBtn">Найти</button>
         </div>
 
@@ -49,6 +53,15 @@
         </div>
 
         <div class="results" id="results"></div>
+    </div>
+
+    <aside class="sidebar" id="trendingSidebar" aria-labelledby="trendingSidebarTitle">
+        <div class="sidebar__header">
+            <h2 class="sidebar__title" id="trendingSidebarTitle">🔥 Новинки недели</h2>
+            <button type="button" class="sidebar__refresh" id="trendingRefresh">Обновить</button>
+        </div>
+        <div class="sidebar__list" id="trendingList"></div>
+    </aside>
     </div>
 
     <div class="detail-modal" id="detailModal" hidden aria-hidden="true">
