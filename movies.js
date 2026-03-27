@@ -76,6 +76,10 @@ const sidebarGenreChips = document.getElementById('sidebarGenreChips');
 const resultsContextHeading = document.getElementById('resultsContextHeading');
 const randomMovieBtn = document.getElementById('randomMovieBtn');
 const sortSelectEl = document.getElementById('sortSelect');
+const statFavCount = document.getElementById('statFavCount');
+const statWatchedCount = document.getElementById('statWatchedCount');
+const statAvgRating = document.getElementById('statAvgRating');
+const statFavGenre = document.getElementById('statFavGenre');
 
 let previousResults = null;
 let autocompleteTimer = null;
@@ -305,6 +309,7 @@ function attachUserRatingRow(card, item) {
             }
             hoverVal = null;
             paintStars();
+            refreshStats();
         });
         starsWrap.appendChild(btn);
     }
@@ -504,6 +509,46 @@ function toggleFavourite(item) {
         favs.push(JSON.parse(JSON.stringify(item)));
     }
     saveFavourites(favs);
+}
+
+function pluralMovies(n) {
+    if (n % 100 >= 11 && n % 100 <= 19) return `${n} фильмов`;
+    const r = n % 10;
+    if (r === 1) return `${n} фильм`;
+    if (r >= 2 && r <= 4) return `${n} фильма`;
+    return `${n} фильмов`;
+}
+
+function refreshStats() {
+    if (!statFavCount) return;
+
+    const favs = loadFavourites();
+    const watched = loadWatched();
+    const ratingsMap = getRatingsMap();
+
+    statFavCount.textContent = pluralMovies(favs.length);
+    statWatchedCount.textContent = pluralMovies(watched.length);
+
+    const ratingValues = Object.values(ratingsMap).filter(
+        (v) => typeof v === 'number' && v >= 1 && v <= 5
+    );
+    if (ratingValues.length === 0) {
+        statAvgRating.textContent = '—';
+    } else {
+        const avg = ratingValues.reduce((s, v) => s + v, 0) / ratingValues.length;
+        statAvgRating.textContent = `${avg.toFixed(1)} ★`;
+    }
+
+    const genreCount = {};
+    favs.forEach((item) => {
+        const ids = Array.isArray(item.genre_ids) ? item.genre_ids : [];
+        ids.forEach((id) => {
+            const label = GENRE_MAP[id];
+            if (label) genreCount[label] = (genreCount[label] || 0) + 1;
+        });
+    });
+    const topGenre = Object.entries(genreCount).sort((a, b) => b[1] - a[1])[0];
+    statFavGenre.textContent = topGenre ? topGenre[0] : '—';
 }
 
 function updateFavouritesBar() {
@@ -1525,6 +1570,7 @@ function createCard(item) {
         toggleFavourite(item);
         updateFavouritesBar();
         syncFavButton(favBtn, item);
+        refreshStats();
         if (currentViewIsFavourites) {
             renderMovies(loadFavourites(), true, { favouritesView: true });
         }
@@ -1539,6 +1585,7 @@ function createCard(item) {
         updateWatchedBar();
         syncWatchedButton(watchedBtnEl, item);
         syncWatchedBadge(card, item);
+        refreshStats();
         if (currentViewIsWatched) {
             renderMovies(loadWatched(), true, { watchedView: true });
         }
@@ -1797,6 +1844,7 @@ if (randomMovieBtn) {
 initTheme();
 updateFavouritesBar();
 updateWatchedBar();
+refreshStats();
 syncFilterChips();
 renderSearchHistoryChips();
 updateSearchHistoryVisibility();
