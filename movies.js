@@ -1,5 +1,6 @@
 const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
+const THEME_STORAGE_KEY = "movieAppTheme";
 
 const GENRE_MAP = {
     28: 'Боевик',
@@ -39,6 +40,7 @@ const filterBar = document.getElementById('filterBar');
 const detailModal = document.getElementById('detailModal');
 const detailModalContent = document.getElementById('detailModalContent');
 const detailModalClose = document.getElementById('detailModalClose');
+const themeToggle = document.getElementById('themeToggle');
 
 let previousResults = null;
 let detailModalCloseTimer = null;
@@ -93,6 +95,43 @@ function toggleFavourite(item) {
 function updateFavouritesBar() {
     const n = loadFavourites().length;
     favouritesBtn.textContent = `Избранное (${n})`;
+}
+
+function getStoredTheme() {
+    try {
+        return localStorage.getItem(THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+    } catch {
+        return "dark";
+    }
+}
+
+function syncThemeToggle(theme) {
+    if (!themeToggle) return;
+    if (theme === "light") {
+        themeToggle.textContent = "🌙";
+        themeToggle.setAttribute("aria-label", "Переключить на тёмную тему");
+    } else {
+        themeToggle.textContent = "☀️";
+        themeToggle.setAttribute("aria-label", "Переключить на светлую тему");
+    }
+}
+
+function initTheme() {
+    const theme = getStoredTheme();
+    if (theme === "light") {
+        document.body.setAttribute("data-theme", "light");
+    } else {
+        document.body.removeAttribute("data-theme");
+    }
+    syncThemeToggle(theme);
+}
+
+function persistTheme(theme) {
+    try {
+        localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+        /* ignore */
+    }
 }
 
 function syncFavButton(btn, item) {
@@ -650,6 +689,20 @@ filterBar.addEventListener('click', (e) => {
     }
 });
 
+if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+        const isLight = document.body.getAttribute('data-theme') === 'light';
+        const next = isLight ? 'dark' : 'light';
+        if (next === 'light') {
+            document.body.setAttribute('data-theme', 'light');
+        } else {
+            document.body.removeAttribute('data-theme');
+        }
+        persistTheme(next);
+        syncThemeToggle(next);
+    });
+}
+
 favouritesBtn.addEventListener('click', openFavouritesPanel);
 searchBtn.addEventListener('click', handleSearch);
 
@@ -669,5 +722,6 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+initTheme();
 updateFavouritesBar();
 syncFilterChips();

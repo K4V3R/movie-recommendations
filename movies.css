@@ -18,6 +18,16 @@
     --card-radius: 14px;
 }
 
+[data-theme="light"] {
+    --bg: #f5f6fa;
+    --surface: #ffffff;
+    --surface-hover: #eef0f7;
+    --border: #dde1f0;
+    --accent: #6c63ff;
+    --text-primary: #1a1d27;
+    --text-secondary: #555972;
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: var(--bg);
@@ -31,16 +41,63 @@ body {
     margin: 0 auto;
 }
 
-h1 {
+.page-header {
+    display: grid;
+    grid-template-columns: 44px 1fr 44px;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 24px;
+}
+
+.page-header__spacer {
+    grid-column: 1;
+    width: 44px;
+}
+
+.page-header h1 {
+    grid-column: 2;
     font-size: 2rem;
     font-weight: 700;
     text-align: center;
     letter-spacing: -0.5px;
-    margin-bottom: 24px;
+    margin: 0;
     background: linear-gradient(135deg, #e8eaf0 30%, #6c63ff);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+}
+
+[data-theme="light"] .page-header h1 {
+    background: linear-gradient(135deg, var(--text-primary) 30%, var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+}
+
+.theme-toggle {
+    grid-column: 3;
+    justify-self: end;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, transform 0.1s;
+}
+
+.theme-toggle:hover {
+    border-color: var(--accent);
+    background: var(--surface-hover);
+}
+
+.theme-toggle:active {
+    transform: scale(0.94);
 }
 
 .favourites-bar-btn {
@@ -375,6 +432,10 @@ h1 {
     transition: opacity 0.28s ease;
 }
 
+[data-theme="light"] .detail-modal {
+    background: rgba(26, 29, 39, 0.45);
+}
+
 .detail-modal.is-open {
     opacity: 1;
     pointer-events: auto;
@@ -597,8 +658,23 @@ h1 {
 
 /* Responsive */
 @media (max-width: 600px) {
-    h1 {
+    .page-header h1 {
         font-size: 1.5rem;
+    }
+
+    .page-header {
+        grid-template-columns: 40px 1fr 40px;
+        gap: 4px;
+    }
+
+    .theme-toggle {
+        width: 40px;
+        height: 40px;
+        font-size: 1.1rem;
+    }
+
+    .page-header__spacer {
+        width: 40px;
     }
 
     .movie-card {
