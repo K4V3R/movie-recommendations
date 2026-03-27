@@ -720,6 +720,39 @@ body {
     color: var(--accent);
 }
 
+.filter-select {
+    padding: 8px 32px 8px 12px;
+    background: var(--surface-hover) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b8fa8'/%3E%3C/svg%3E") no-repeat right 10px center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    transition: border-color 0.2s, color 0.2s;
+    min-width: 150px;
+}
+
+.filter-select:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.filter-select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(108, 99, 255, 0.18);
+    color: var(--text-primary);
+}
+
+.filter-select option {
+    background: var(--surface);
+    color: var(--text-primary);
+}
+
 .results-context-heading {
     font-size: 1.25rem;
     font-weight: 700;

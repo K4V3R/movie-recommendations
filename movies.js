@@ -75,6 +75,7 @@ const trendingRefreshBtn = document.getElementById('trendingRefresh');
 const sidebarGenreChips = document.getElementById('sidebarGenreChips');
 const resultsContextHeading = document.getElementById('resultsContextHeading');
 const randomMovieBtn = document.getElementById('randomMovieBtn');
+const sortSelectEl = document.getElementById('sortSelect');
 
 let previousResults = null;
 let autocompleteTimer = null;
@@ -89,6 +90,7 @@ let currentViewIsWatched = false;
 let filterBaseItems = null;
 let filterType = 'all';
 let filterMinRating = 0;
+let filterSortOrder = 'default';
 let activeRenderWithBack = false;
 let activeRenderOptions = {};
 
@@ -715,9 +717,35 @@ function syncFavButton(btn, item) {
     btn.setAttribute('aria-label', fav ? 'Удалить из избранного' : 'Добавить в избранное');
 }
 
+function getItemYear(item) {
+    const raw = item.release_date || item.first_air_date || '';
+    return raw.length >= 4 ? parseInt(raw.slice(0, 4), 10) : 0;
+}
+
+function getItemTitle(item) {
+    return (item.title || item.name || '').toLowerCase();
+}
+
+function applyItemSort(items) {
+    if (filterSortOrder === 'default' || !items || items.length === 0) return items;
+    const arr = items.slice();
+    arr.sort((a, b) => {
+        switch (filterSortOrder) {
+            case 'rating_desc': return (b.vote_average || 0) - (a.vote_average || 0);
+            case 'rating_asc':  return (a.vote_average || 0) - (b.vote_average || 0);
+            case 'year_desc':   return getItemYear(b) - getItemYear(a);
+            case 'year_asc':    return getItemYear(a) - getItemYear(b);
+            case 'title_asc':   return getItemTitle(a).localeCompare(getItemTitle(b), 'ru');
+            case 'title_desc':  return getItemTitle(b).localeCompare(getItemTitle(a), 'ru');
+            default:            return 0;
+        }
+    });
+    return arr;
+}
+
 function applyItemFilters(items) {
     if (!items || items.length === 0) return [];
-    return items.filter((item) => {
+    const filtered = items.filter((item) => {
         if (filterType === 'movie' && item.media_type !== 'movie') return false;
         if (filterType === 'tv' && item.media_type !== 'tv') return false;
         if (filterMinRating > 0) {
@@ -726,6 +754,7 @@ function applyItemFilters(items) {
         }
         return true;
     });
+    return applyItemSort(filtered);
 }
 
 function syncFilterChips() {
@@ -736,6 +765,7 @@ function syncFilterChips() {
         const v = parseInt(btn.dataset.filterRating, 10);
         btn.classList.toggle('is-active', v === filterMinRating);
     });
+    if (sortSelectEl) sortSelectEl.value = filterSortOrder;
 }
 
 function updateFilterBarVisibility() {
@@ -844,6 +874,7 @@ function renderMovies(items, withBack = false, options = {}) {
     if (resetFilters) {
         filterType = 'all';
         filterMinRating = 0;
+        filterSortOrder = 'default';
     }
     syncFilterChips();
     rebuildResultsFromFilters(withBack, { favouritesView, watchedView });
@@ -1640,6 +1671,13 @@ filterBar.addEventListener('click', (e) => {
         rebuildResultsFromFilters(activeRenderWithBack, activeRenderOptions);
     }
 });
+
+if (sortSelectEl) {
+    sortSelectEl.addEventListener('change', () => {
+        filterSortOrder = sortSelectEl.value;
+        rebuildResultsFromFilters(activeRenderWithBack, activeRenderOptions);
+    });
+}
 
 if (themeToggle) {
     themeToggle.addEventListener('click', () => {
