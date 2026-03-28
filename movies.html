@@ -27,6 +27,13 @@
             <button type="button" class="favourites-bar-btn watched-bar-btn" id="watchedBtn">Смотрел (0)</button>
         </div>
 
+        <div class="data-io-bar">
+            <button type="button" class="data-io-btn" id="exportBtn">⬇ Экспорт</button>
+            <button type="button" class="data-io-btn" id="importBtn">⬆ Импорт</button>
+            <input type="file" id="importFileInput" accept=".json" hidden aria-hidden="true">
+            <span class="data-io-msg" id="dataIoMsg" hidden aria-live="polite"></span>
+        </div>
+
         <div class="search-box">
             <div class="search-box__wrap">
                 <input type="text" id="searchInput" placeholder="Введите фильм или сериал" autocomplete="off" aria-autocomplete="list" aria-controls="searchSuggest" aria-expanded="false">

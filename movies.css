@@ -355,7 +355,50 @@ body {
     display: flex;
     gap: 10px;
     justify-content: center;
+    margin-bottom: 12px;
+}
+
+.data-io-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.data-io-btn {
+    padding: 7px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, transform 0.1s;
+    white-space: nowrap;
+}
+
+.data-io-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.data-io-btn:active {
+    transform: scale(0.97);
+}
+
+.data-io-msg {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #3dba7a;
+    padding: 4px 0;
+}
+
+.data-io-msg[hidden] {
+    display: none;
 }
 
 .favourites-bar-btn {

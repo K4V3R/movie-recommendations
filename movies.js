@@ -76,6 +76,10 @@ const sidebarGenreChips = document.getElementById('sidebarGenreChips');
 const resultsContextHeading = document.getElementById('resultsContextHeading');
 const randomMovieBtn = document.getElementById('randomMovieBtn');
 const sortSelectEl = document.getElementById('sortSelect');
+const exportBtn = document.getElementById('exportBtn');
+const importBtn = document.getElementById('importBtn');
+const importFileInput = document.getElementById('importFileInput');
+const dataIoMsg = document.getElementById('dataIoMsg');
 const statFavCount = document.getElementById('statFavCount');
 const statWatchedCount = document.getElementById('statWatchedCount');
 const statAvgRating = document.getElementById('statAvgRating');
@@ -2081,6 +2085,95 @@ if (randomMovieBtn) {
             randomMovieBtn.textContent = '🎲 Случайный фильм';
             randomMovieBtn.disabled = false;
         }
+    });
+}
+
+/* ── Data export / import ──────────────────────────────────────── */
+let dataIoMsgTimer = null;
+
+function showDataIoMsg(text) {
+    if (!dataIoMsg) return;
+    if (dataIoMsgTimer) clearTimeout(dataIoMsgTimer);
+    dataIoMsg.textContent = text;
+    dataIoMsg.hidden = false;
+    dataIoMsgTimer = setTimeout(() => {
+        dataIoMsg.hidden = true;
+        dataIoMsg.textContent = '';
+        dataIoMsgTimer = null;
+    }, 2000);
+}
+
+function handleExport() {
+    const payload = {
+        favourites: loadFavourites(),
+        watched: loadWatched(),
+        ratings: getRatingsMap(),
+        notes: getNotesMap(),
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'filmoteka-backup.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function applyImportedData(parsed) {
+    const VALID_KEYS = ['favourites', 'watched', 'ratings', 'notes'];
+    const hasAny = VALID_KEYS.some((k) => k in parsed);
+    if (!hasAny) throw new Error('Нет распознанных ключей');
+
+    if (Array.isArray(parsed.favourites)) {
+        localStorage.setItem(FAVOURITES_STORAGE_KEY, JSON.stringify(parsed.favourites));
+    }
+    if (Array.isArray(parsed.watched)) {
+        localStorage.setItem(WATCHED_STORAGE_KEY, JSON.stringify(parsed.watched));
+    }
+    if (parsed.ratings && typeof parsed.ratings === 'object' && !Array.isArray(parsed.ratings)) {
+        ratingsMapCache = null;
+        localStorage.setItem(RATINGS_STORAGE_KEY, JSON.stringify(parsed.ratings));
+        ratingsMapCache = null;
+    }
+    if (parsed.notes && typeof parsed.notes === 'object' && !Array.isArray(parsed.notes)) {
+        notesMapCache = null;
+        localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(parsed.notes));
+        notesMapCache = null;
+    }
+}
+
+if (exportBtn) {
+    exportBtn.addEventListener('click', handleExport);
+}
+
+if (importBtn && importFileInput) {
+    importBtn.addEventListener('click', () => importFileInput.click());
+
+    importFileInput.addEventListener('change', () => {
+        const file = importFileInput.files && importFileInput.files[0];
+        if (!file) return;
+        importFileInput.value = '';
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const parsed = JSON.parse(e.target.result);
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    throw new Error('Неверный формат');
+                }
+                applyImportedData(parsed);
+                updateFavouritesBar();
+                updateWatchedBar();
+                refreshStats();
+                renderSearchHistoryChips();
+                showDataIoMsg('✓ Данные импортированы');
+            } catch {
+                showDataIoMsg('✗ Ошибка импорта');
+            }
+        };
+        reader.readAsText(file, 'utf-8');
     });
 }
 
