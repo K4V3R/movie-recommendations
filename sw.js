@@ -1,4 +1,4 @@
-const CACHE_NAME = 'filmoteka-v1';
+const CACHE_NAME = 'filmoteka-v2';
 const APP_SHELL = [
     './movies.html',
     './movies.css',

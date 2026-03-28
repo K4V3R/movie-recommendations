@@ -1079,18 +1079,42 @@ function renderTrendingSidebar(items) {
     });
 }
 
+function showTrendingRetryButton() {
+    if (!trendingListEl) return;
+    trendingListEl.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sidebar__refresh';
+    btn.style.cssText = 'display:block;margin:8px auto 0;';
+    btn.textContent = 'Обновить';
+    btn.addEventListener('click', () => loadTrendingSidebar());
+    trendingListEl.appendChild(btn);
+}
+
 async function loadTrendingSidebar() {
     if (!trendingListEl) return;
     trendingListEl.innerHTML = '<p class="sidebar__loading">Загрузка...</p>';
     try {
         const items = await fetchTrendingWeekItems();
         if (!items.length) {
-            trendingListEl.innerHTML = '<p class="sidebar__error">Нет данных.</p>';
+            showTrendingRetryButton();
             return;
         }
         renderTrendingSidebar(items);
     } catch {
-        trendingListEl.innerHTML = '<p class="sidebar__error">Не удалось загрузить.</p>';
+        // Silent retry once after 3 s
+        setTimeout(async () => {
+            try {
+                const items = await fetchTrendingWeekItems();
+                if (items.length) {
+                    renderTrendingSidebar(items);
+                } else {
+                    showTrendingRetryButton();
+                }
+            } catch {
+                showTrendingRetryButton();
+            }
+        }, 3000);
     }
 }
 
@@ -1993,6 +2017,7 @@ syncFilterChips();
 renderSearchHistoryChips();
 updateSearchHistoryVisibility();
 initGenreBrowser();
+resultsEl.innerHTML = '';
 loadTrendingSidebar();
 
 if ('serviceWorker' in navigator) {
