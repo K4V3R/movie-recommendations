@@ -121,6 +121,18 @@
         </div>
     </div>
 
+    <div class="compare-bar" id="compareBar" hidden>
+        <div class="compare-bar__slots" id="compareSlots"></div>
+        <button type="button" class="compare-bar__btn" id="compareBtn" disabled>Сравнить</button>
+    </div>
+
+    <div class="compare-modal" id="compareModal" hidden aria-hidden="true">
+        <div class="compare-modal__dialog" role="dialog" aria-modal="true" aria-label="Сравнение фильмов">
+            <button type="button" class="compare-modal__close" id="compareModalClose" aria-label="Закрыть">✕</button>
+            <div class="compare-modal__content" id="compareModalContent"></div>
+        </div>
+    </div>
+
     <div class="kb-hint" id="kbHint" aria-hidden="true">
         <span class="kb-hint__item"><kbd>/</kbd> Поиск</span>
         <span class="kb-hint__sep">·</span>

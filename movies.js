@@ -1681,6 +1681,7 @@ function createCard(item) {
     card.innerHTML = `
         <div class="card-actions">
             <button type="button" class="share-btn" aria-label="Поделиться">🔗</button>
+            <button type="button" class="compare-toggle-btn" aria-label="Добавить к сравнению">⚖️</button>
             <button type="button" class="watched-btn" aria-label="Отметить как просмотренное">✓</button>
             <button type="button" class="fav-btn" aria-label="Добавить в избранное">♡</button>
         </div>
@@ -1738,6 +1739,14 @@ function createCard(item) {
 
     card.querySelector('.similar-btn').addEventListener('click', () => {
         loadRecommendations(item);
+    });
+
+    const compareToggleBtn = card.querySelector('.compare-toggle-btn');
+    syncCompareToggleBtn(compareToggleBtn, item);
+    compareToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleCompareSlot(item);
+        syncCompareToggleBtn(compareToggleBtn, item);
     });
 
     card.addEventListener('focus', () => {
@@ -2085,6 +2094,244 @@ if (randomMovieBtn) {
             randomMovieBtn.textContent = '🎲 Случайный фильм';
             randomMovieBtn.disabled = false;
         }
+    });
+}
+
+/* ── Movie comparison ─────────────────────────────────────────── */
+const compareBarEl = document.getElementById('compareBar');
+const compareSlotsEl = document.getElementById('compareSlots');
+const compareBtnEl = document.getElementById('compareBtn');
+const compareModalEl = document.getElementById('compareModal');
+const compareModalClose = document.getElementById('compareModalClose');
+const compareModalContent = document.getElementById('compareModalContent');
+
+let compareSlots = [];   // max 2 items
+
+function getCompareKey(item) {
+    return getItemKey(item);
+}
+
+function isInCompare(item) {
+    return compareSlots.some((s) => getCompareKey(s) === getCompareKey(item));
+}
+
+function toggleCompareSlot(item) {
+    const key = getCompareKey(item);
+    const idx = compareSlots.findIndex((s) => getCompareKey(s) === key);
+    if (idx >= 0) {
+        compareSlots.splice(idx, 1);
+    } else if (compareSlots.length < 2) {
+        compareSlots.push(item);
+    }
+    syncCompareBar();
+    syncAllCompareToggleBtns();
+}
+
+function syncCompareToggleBtn(btn, item) {
+    if (!btn) return;
+    const active = isInCompare(item);
+    btn.classList.toggle('is-comparing', active);
+    btn.setAttribute('aria-label', active ? 'Убрать из сравнения' : 'Добавить к сравнению');
+    btn.setAttribute('aria-pressed', String(active));
+}
+
+function syncAllCompareToggleBtns() {
+    resultsEl.querySelectorAll('.compare-toggle-btn').forEach((btn) => {
+        const card = btn.closest('.movie-card');
+        if (card && card._kbItem) syncCompareToggleBtn(btn, card._kbItem);
+    });
+}
+
+function syncCompareBar() {
+    if (!compareBarEl) return;
+    const hasAny = compareSlots.length > 0;
+    compareBarEl.hidden = !hasAny;
+    compareBtnEl.disabled = compareSlots.length < 2;
+
+    compareSlotsEl.innerHTML = '';
+    compareSlots.forEach((item) => {
+        const pill = document.createElement('div');
+        pill.className = 'compare-bar__pill';
+
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'compare-bar__pill-title';
+        titleSpan.textContent = item.title || item.name || 'Без названия';
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'compare-bar__pill-remove';
+        removeBtn.setAttribute('aria-label', 'Убрать из сравнения');
+        removeBtn.textContent = '✕';
+        removeBtn.addEventListener('click', () => {
+            toggleCompareSlot(item);
+        });
+
+        pill.appendChild(titleSpan);
+        pill.appendChild(removeBtn);
+        compareSlotsEl.appendChild(pill);
+    });
+}
+
+function closeCompareModal() {
+    compareModalEl.setAttribute('hidden', '');
+    compareModalEl.setAttribute('aria-hidden', 'true');
+    compareModalContent.innerHTML = '';
+    document.body.style.overflow = '';
+    compareSlots = [];
+    syncCompareBar();
+    syncAllCompareToggleBtns();
+}
+
+async function fetchCompareDetails(item) {
+    const type = getDetailMediaType(item) || 'movie';
+    const url = `https://api.themoviedb.org/3/${type}/${item.id}?api_key=${API_KEY}&language=ru-RU`;
+    const res = await fetch(url);
+    return { data: await res.json(), type };
+}
+
+function buildCompareCol(details, type) {
+    const col = document.createElement('div');
+    col.className = 'cmp-col';
+
+    const posterSrc = details.poster_path
+        ? `https://image.tmdb.org/t/p/w300${details.poster_path}`
+        : null;
+    const posterEl = document.createElement('div');
+    posterEl.className = 'cmp-poster';
+    if (posterSrc) {
+        const img = document.createElement('img');
+        img.src = posterSrc;
+        img.alt = '';
+        posterEl.appendChild(img);
+    } else {
+        posterEl.textContent = '🎬';
+    }
+    col.appendChild(posterEl);
+
+    const title = type === 'movie' ? details.title : details.name;
+    const h = document.createElement('h3');
+    h.className = 'cmp-title';
+    h.textContent = title || 'Без названия';
+    col.appendChild(h);
+
+    col._cmpData = {
+        year: (() => {
+            const raw = type === 'movie' ? details.release_date : details.first_air_date;
+            return raw && raw.length >= 4 ? parseInt(raw.slice(0, 4), 10) : null;
+        })(),
+        rating: details.vote_average != null ? Number(details.vote_average) : null,
+        runtime: type === 'movie'
+            ? (details.runtime || null)
+            : (Array.isArray(details.episode_run_time) && details.episode_run_time[0]) || null,
+        genres: genreLabelsFromDetails(details).join(', ') || '—',
+        country: details.production_countries?.[0]?.name || '—',
+        overview: details.overview ? details.overview.slice(0, 120) + (details.overview.length > 120 ? '…' : '') : '—',
+    };
+
+    return col;
+}
+
+function renderCompareTable(col1, col2) {
+    const d1 = col1._cmpData;
+    const d2 = col2._cmpData;
+
+    const rows = [
+        {
+            label: 'Год',
+            v1: d1.year ?? '—',
+            v2: d2.year ?? '—',
+            better: d1.year != null && d2.year != null
+                ? (d1.year >= d2.year ? 'left' : 'right')
+                : null,
+        },
+        {
+            label: 'Рейтинг',
+            v1: d1.rating != null ? d1.rating.toFixed(1) : '—',
+            v2: d2.rating != null ? d2.rating.toFixed(1) : '—',
+            better: d1.rating != null && d2.rating != null
+                ? (d1.rating >= d2.rating ? 'left' : 'right')
+                : null,
+        },
+        {
+            label: 'Хронометраж',
+            v1: d1.runtime ? `${d1.runtime} мин` : '—',
+            v2: d2.runtime ? `${d2.runtime} мин` : '—',
+            better: null,
+        },
+        { label: 'Жанры', v1: d1.genres, v2: d2.genres, better: null },
+        { label: 'Страна', v1: d1.country, v2: d2.country, better: null },
+        { label: 'Описание', v1: d1.overview, v2: d2.overview, better: null },
+    ];
+
+    const wrap = document.createElement('div');
+    wrap.className = 'cmp-layout';
+
+    // Header row (posters + titles already in cols)
+    const headerRow = document.createElement('div');
+    headerRow.className = 'cmp-header-row';
+    const spacer = document.createElement('div');
+    spacer.className = 'cmp-label-col';
+    headerRow.appendChild(spacer);
+    [col1, col2].forEach((col) => {
+        const h = document.createElement('div');
+        h.className = 'cmp-val-col';
+        h.appendChild(col);
+        headerRow.appendChild(h);
+    });
+    wrap.appendChild(headerRow);
+
+    rows.forEach(({ label, v1, v2, better }) => {
+        const row = document.createElement('div');
+        row.className = 'cmp-row';
+
+        const lbl = document.createElement('div');
+        lbl.className = 'cmp-label-col cmp-row-label';
+        lbl.textContent = label;
+        row.appendChild(lbl);
+
+        [v1, v2].forEach((val, i) => {
+            const cell = document.createElement('div');
+            cell.className = 'cmp-val-col cmp-cell';
+            cell.textContent = val;
+            if (better === 'left' && i === 0) cell.classList.add('cmp-better');
+            if (better === 'right' && i === 1) cell.classList.add('cmp-better');
+            row.appendChild(cell);
+        });
+
+        wrap.appendChild(row);
+    });
+
+    return wrap;
+}
+
+async function openCompareModal() {
+    if (compareSlots.length < 2) return;
+    compareModalEl.removeAttribute('hidden');
+    compareModalEl.setAttribute('aria-hidden', 'false');
+    compareModalContent.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px;">Загрузка...</p>';
+    document.body.style.overflow = 'hidden';
+
+    try {
+        const [r1, r2] = await Promise.all([
+            fetchCompareDetails(compareSlots[0]),
+            fetchCompareDetails(compareSlots[1]),
+        ]);
+        const col1 = buildCompareCol(r1.data, r1.type);
+        const col2 = buildCompareCol(r2.data, r2.type);
+        const table = renderCompareTable(col1, col2);
+        compareModalContent.innerHTML = '';
+        compareModalContent.appendChild(table);
+    } catch {
+        compareModalContent.innerHTML =
+            '<p style="color:var(--text-secondary);text-align:center;padding:40px;">Не удалось загрузить данные.</p>';
+    }
+}
+
+if (compareBtnEl) compareBtnEl.addEventListener('click', openCompareModal);
+if (compareModalClose) compareModalClose.addEventListener('click', closeCompareModal);
+if (compareModalEl) {
+    compareModalEl.addEventListener('click', (e) => {
+        if (e.target === compareModalEl) closeCompareModal();
     });
 }
 
