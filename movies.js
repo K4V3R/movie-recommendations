@@ -148,8 +148,7 @@ async function loadGenreDiscover(id, label) {
 
     filterBaseItems = null;
     updateFilterBarVisibility();
-    resultsEl.innerHTML =
-        '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Загрузка...</p>';
+    renderSkeletons();
     updateSearchHistoryVisibility();
 
     const url = `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU&sort_by=popularity.desc&with_genres=${id}&page=1`;
@@ -186,6 +185,47 @@ function initGenreBrowser() {
         sidebarGenreChips.appendChild(btn);
     });
     syncGenreBrowserChips();
+}
+
+function renderSkeletons(count = 5) {
+    resultsEl.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+        const card = document.createElement('div');
+        card.className = 'movie-card is-skeleton';
+
+        const poster = document.createElement('div');
+        poster.className = 'skeleton-block skeleton-poster';
+
+        const info = document.createElement('div');
+        info.className = 'skeleton-info';
+
+        const title = document.createElement('div');
+        title.className = 'skeleton-block skeleton-title';
+
+        const meta = document.createElement('div');
+        meta.className = 'skeleton-meta';
+        [55, 70].forEach((w) => {
+            const chip = document.createElement('div');
+            chip.className = 'skeleton-block skeleton-meta-chip';
+            chip.style.width = `${w}px`;
+            meta.appendChild(chip);
+        });
+
+        const desc = document.createElement('div');
+        desc.className = 'skeleton-desc';
+        for (let j = 0; j < 3; j++) {
+            const line = document.createElement('div');
+            line.className = 'skeleton-block skeleton-desc-line';
+            desc.appendChild(line);
+        }
+
+        info.appendChild(title);
+        info.appendChild(meta);
+        info.appendChild(desc);
+        card.appendChild(poster);
+        card.appendChild(info);
+        resultsEl.appendChild(card);
+    }
 }
 
 function removeLoadMoreButton() {
@@ -1656,7 +1696,7 @@ async function loadRecommendations(item) {
     resetSearchPagination();
     filterBaseItems = null;
     updateFilterBarVisibility();
-    resultsEl.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Загрузка похожих...</p>';
+    renderSkeletons();
     updateSearchHistoryVisibility();
 
     try {
@@ -1682,6 +1722,7 @@ async function handleSearch() {
     searchBtn.disabled = true;
     previousResults = null;
     viewSnapshotBeforeFavourites = null;
+    renderSkeletons();
 
     try {
         const { results, total_pages } = await searchMoviesPage(query, 1);
