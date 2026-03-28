@@ -2146,7 +2146,7 @@ function syncCompareBar() {
     if (!compareBarEl) return;
     const hasAny = compareSlots.length > 0;
     compareBarEl.hidden = !hasAny;
-    compareBtnEl.disabled = compareSlots.length < 2;
+    if (compareBtnEl) compareBtnEl.disabled = compareSlots.length < 2;
 
     compareSlotsEl.innerHTML = '';
     compareSlots.forEach((item) => {
@@ -2173,9 +2173,10 @@ function syncCompareBar() {
 }
 
 function closeCompareModal() {
-    compareModalEl.setAttribute('hidden', '');
+    if (!compareModalEl) return;
+    compareModalEl.classList.remove('is-open');
     compareModalEl.setAttribute('aria-hidden', 'true');
-    compareModalContent.innerHTML = '';
+    if (compareModalContent) compareModalContent.innerHTML = '';
     document.body.style.overflow = '';
     compareSlots = [];
     syncCompareBar();
@@ -2305,8 +2306,8 @@ function renderCompareTable(col1, col2) {
 }
 
 async function openCompareModal() {
-    if (compareSlots.length < 2) return;
-    compareModalEl.removeAttribute('hidden');
+    if (compareSlots.length < 2 || !compareModalEl || !compareModalContent) return;
+    compareModalEl.classList.add('is-open');
     compareModalEl.setAttribute('aria-hidden', 'false');
     compareModalContent.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px;">Загрузка...</p>';
     document.body.style.overflow = 'hidden';

@@ -1796,7 +1796,7 @@ body {
     position: fixed;
     inset: 0;
     z-index: 2100;
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
     padding: 24px 16px;
@@ -1804,8 +1804,8 @@ body {
     backdrop-filter: blur(4px);
 }
 
-.compare-modal[hidden] {
-    display: none !important;
+.compare-modal.is-open {
+    display: flex;
 }
 
 [data-theme="light"] .compare-modal {
