@@ -1850,3 +1850,9 @@ renderSearchHistoryChips();
 updateSearchHistoryVisibility();
 initGenreBrowser();
 loadTrendingSidebar();
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => { /* sw unavailable */ });
+    });
+}
