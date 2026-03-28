@@ -1265,13 +1265,51 @@ async function fetchDetailAndVideos(id, type) {
     const base = `https://api.themoviedb.org/3/${type}/${id}`;
     const detailUrl = `${base}?api_key=${API_KEY}&language=ru-RU`;
     const videosUrl = `${base}/videos?api_key=${API_KEY}`;
-    const [detailRes, videoRes] = await Promise.all([
+    const creditsUrl = `${base}/credits?api_key=${API_KEY}&language=ru-RU`;
+    const [detailRes, videoRes, creditsRes] = await Promise.all([
         fetch(detailUrl),
         fetch(videosUrl),
+        fetch(creditsUrl),
     ]);
     const details = await detailRes.json();
     const videos = await videoRes.json();
-    return { details, videos };
+    const credits = await creditsRes.json();
+    return { details, videos, credits };
+}
+
+async function fetchPersonCredits(personId) {
+    const url = `https://api.themoviedb.org/3/person/${personId}/combined_credits?api_key=${API_KEY}&language=ru-RU`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const cast = (data.cast || []).filter(
+        (r) => r.media_type === 'movie' || r.media_type === 'tv'
+    );
+    cast.sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+    return cast.slice(0, 20);
+}
+
+async function openPersonFilmography(personId, personName) {
+    closeDetailModal();
+    clearGenreBrowserState();
+    resetSearchPagination();
+    previousResults = null;
+    viewSnapshotBeforeFavourites = null;
+    filterBaseItems = null;
+    updateFilterBarVisibility();
+    renderSkeletons();
+    updateSearchHistoryVisibility();
+    try {
+        const items = await fetchPersonCredits(personId);
+        setResultsContextHeading(`Фильмы: ${personName}`);
+        renderMovies(items, false, { resetFilters: true });
+    } catch {
+        clearResultsContextHeading();
+        filterBaseItems = null;
+        updateFilterBarVisibility();
+        resultsEl.innerHTML =
+            '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Не удалось загрузить фильмографию.</p>';
+        updateSearchHistoryVisibility();
+    }
 }
 
 function findYoutubeTrailer(videosData) {
@@ -1321,7 +1359,26 @@ function closeDetailModal() {
     }, 280);
 }
 
-function renderDetailModalContent(details, videosData, type) {
+function buildCreditsRow(labelText, people) {
+    if (!people || people.length === 0) return null;
+    const row = document.createElement('p');
+    row.className = 'detail-modal__fact detail-modal__credits-row';
+    const lbl = document.createElement('strong');
+    lbl.textContent = `${labelText}: `;
+    row.appendChild(lbl);
+    people.forEach((person, i) => {
+        if (i > 0) row.appendChild(document.createTextNode(', '));
+        const link = document.createElement('button');
+        link.type = 'button';
+        link.className = 'person-link';
+        link.textContent = person.name;
+        link.addEventListener('click', () => openPersonFilmography(person.id, person.name));
+        row.appendChild(link);
+    });
+    return row;
+}
+
+function renderDetailModalContent(details, videosData, type, credits) {
     const title =
         type === 'movie' ? details.title : details.name;
     const dateRaw = type === 'movie' ? details.release_date : details.first_air_date;
@@ -1450,6 +1507,24 @@ function renderDetailModalContent(details, videosData, type) {
     desc.textContent = overview;
     info.appendChild(desc);
 
+    // Credits
+    if (credits) {
+        const crew = credits.crew || [];
+        const castList = (credits.cast || []).slice(0, 5);
+        const director = crew.find((c) => c.job === 'Director');
+        const directorRow = director
+            ? buildCreditsRow('Режиссёр', [director])
+            : null;
+        const castRow = castList.length
+            ? buildCreditsRow('В ролях', castList)
+            : null;
+        const creditsBlock = document.createElement('div');
+        creditsBlock.className = 'detail-modal__credits';
+        if (directorRow) creditsBlock.appendChild(directorRow);
+        if (castRow) creditsBlock.appendChild(castRow);
+        if (creditsBlock.childElementCount) info.appendChild(creditsBlock);
+    }
+
     if (trailer && trailer.key) {
         const tr = document.createElement('div');
         tr.className = 'detail-modal__trailer';
@@ -1485,11 +1560,11 @@ async function openMovieDetail(item) {
     openDetailModalShell();
 
     try {
-        const { details, videos } = await fetchDetailAndVideos(item.id, type);
+        const { details, videos, credits } = await fetchDetailAndVideos(item.id, type);
         if (!details || details.id == null) {
             throw new Error('bad detail');
         }
-        renderDetailModalContent(details, videos, type);
+        renderDetailModalContent(details, videos, type, credits);
     } catch {
         detailModalContent.innerHTML =
             '<p class="detail-modal__error">Не удалось загрузить данные.</p>';

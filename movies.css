@@ -1470,6 +1470,41 @@ body {
     font-weight: 600;
 }
 
+.detail-modal__credits {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.detail-modal__credits-row {
+    margin: 0;
+    line-height: 1.6;
+}
+
+.person-link {
+    display: inline;
+    padding: 0;
+    margin: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: inherit;
+    font-family: inherit;
+    color: var(--accent);
+    text-decoration: none;
+    transition: opacity 0.15s;
+}
+
+.person-link:hover {
+    text-decoration: underline;
+    opacity: 0.85;
+}
+
+.person-link:active {
+    opacity: 0.65;
+}
+
 .detail-modal__trailer {
     margin-top: 8px;
 }
