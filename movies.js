@@ -1572,6 +1572,8 @@ function createCard(item) {
 
     const card = document.createElement('div');
     card.className = 'movie-card';
+    card.setAttribute('tabindex', '0');
+    card._kbItem = item;
 
     card.innerHTML = `
         <div class="card-actions">
@@ -1633,6 +1635,11 @@ function createCard(item) {
 
     card.querySelector('.similar-btn').addEventListener('click', () => {
         loadRecommendations(item);
+    });
+
+    card.addEventListener('focus', () => {
+        getResultCards().forEach((c) => c.classList.remove('kb-focused'));
+        card.classList.add('kb-focused');
     });
 
     attachUserRatingRow(card, item);
@@ -1852,6 +1859,102 @@ document.addEventListener('keydown', (e) => {
     }
     if (searchSuggestEl && !searchSuggestEl.hidden) {
         hideSearchSuggest();
+        return;
+    }
+    if (document.activeElement === searchInput) {
+        searchInput.value = '';
+        searchInput.blur();
+    }
+});
+
+/* ── Keyboard navigation ───────────────────────────────────────── */
+function getResultCards() {
+    return Array.from(resultsEl.querySelectorAll('.movie-card:not(.is-skeleton)'));
+}
+
+function getKbFocusedCard() {
+    return resultsEl.querySelector('.movie-card.kb-focused');
+}
+
+function setKbFocus(card) {
+    getResultCards().forEach((c) => c.classList.remove('kb-focused'));
+    if (!card) return;
+    card.classList.add('kb-focused');
+    card.focus({ preventScroll: false });
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+function isModalOpen() {
+    return !detailModal.hasAttribute('hidden');
+}
+
+function getItemFromCard(card) {
+    // Retrieve the item bound to this card via a data attribute we'll set
+    const idx = card.dataset.kbIndex;
+    if (idx == null) return null;
+    const cards = getResultCards();
+    return cards[parseInt(idx, 10)]?._kbItem ?? null;
+}
+
+document.addEventListener('keydown', (e) => {
+    const key = e.key;
+    const active = document.activeElement;
+    const inTyping = isTypingTarget(active);
+    const modalOpen = isModalOpen();
+
+    // / — focus search (when modal closed and not already in input)
+    if (key === '/' && !inTyping && !modalOpen) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+        return;
+    }
+
+    // Arrow navigation within results
+    if ((key === 'ArrowDown' || key === 'ArrowUp') && !modalOpen) {
+        const cards = getResultCards();
+        if (!cards.length) return;
+        e.preventDefault();
+        const focused = getKbFocusedCard();
+        let idx = focused ? cards.indexOf(focused) : -1;
+        if (key === 'ArrowDown') idx = Math.min(idx + 1, cards.length - 1);
+        else idx = Math.max(idx - 1, 0);
+        setKbFocus(cards[idx]);
+        return;
+    }
+
+    // Keys that act on the focused card
+    const focused = getKbFocusedCard();
+    if (!focused || modalOpen) return;
+
+    const item = focused._kbItem;
+    if (!item) return;
+
+    if (key === 'Enter') {
+        e.preventDefault();
+        openMovieDetail(item);
+        return;
+    }
+
+    if (key === 'f' || key === 'F') {
+        if (inTyping) return;
+        e.preventDefault();
+        const favBtn = focused.querySelector('.fav-btn');
+        if (favBtn) favBtn.click();
+        return;
+    }
+
+    if (key === 'w' || key === 'W') {
+        if (inTyping) return;
+        e.preventDefault();
+        const wb = focused.querySelector('.watched-btn');
+        if (wb) wb.click();
     }
 });
 

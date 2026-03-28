@@ -927,6 +927,17 @@ body {
     box-shadow: 0 8px 32px rgba(108, 99, 255, 0.12);
 }
 
+.movie-card:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.movie-card.kb-focused {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-color: var(--accent);
+}
+
 .movie-poster-wrap {
     flex-shrink: 0;
     position: relative;
@@ -1576,5 +1587,54 @@ body {
 
     .detail-modal__dialog {
         padding: 20px 18px 24px;
+    }
+}
+
+/* Keyboard shortcut hint bar */
+.kb-hint {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 7px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    user-select: none;
+}
+
+.kb-hint__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.kb-hint__sep {
+    color: var(--border);
+}
+
+kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    background: var(--surface-hover);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+@media (max-width: 600px) {
+    .kb-hint {
+        display: none;
     }
 }
