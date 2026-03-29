@@ -1,8 +1,35 @@
 const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
-const PROXY = 'https://corsproxy.io/?';
+const PROXIES = [
+    'https://corsproxy.io/?',
+    'https://api.allorigins.win/raw?url=',
+];
+let activeProxyIdx = 0;
 
 function apiUrl(url) {
-    return PROXY + encodeURIComponent(url);
+    return PROXIES[activeProxyIdx] + encodeURIComponent(url);
+}
+
+async function fetchWithFallback(url) {
+    for (let i = 0; i < PROXIES.length; i++) {
+        let timer = null;
+        try {
+            const proxyUrl = PROXIES[i] + encodeURIComponent(url);
+            const controller = new AbortController();
+            timer = setTimeout(() => controller.abort(), 6000);
+            const res = await fetch(proxyUrl, { signal: controller.signal });
+            if (timer !== null) clearTimeout(timer);
+            timer = null;
+            if (res.ok) {
+                activeProxyIdx = i;
+                return res;
+            }
+        } catch {
+            /* try next */
+        } finally {
+            if (timer !== null) clearTimeout(timer);
+        }
+    }
+    throw new Error('All proxies failed');
 }
 
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
@@ -190,7 +217,7 @@ function tryRestoreHomeScreenDebounced() {
 
 async function fetchHomePopularRow() {
     const url = `https://api.themoviedb.org/3/movie/popular?api_key=${API_KEY}&language=ru-RU&page=1`;
-    const response = await fetch(apiUrl(url));
+    const response = await fetchWithFallback(url);
     const data = await response.json();
     const raw = data.results || [];
     return raw
@@ -201,7 +228,7 @@ async function fetchHomePopularRow() {
 
 async function fetchHomeDiscoverRow(genreId) {
     const url = `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU&sort_by=popularity.desc&with_genres=${genreId}&page=1`;
-    const response = await fetch(apiUrl(url));
+    const response = await fetchWithFallback(url);
     const data = await response.json();
     const raw = data.results || [];
     return raw
@@ -359,7 +386,7 @@ async function loadGenreDiscover(id, label) {
     const url = `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU&sort_by=popularity.desc&with_genres=${id}&page=1`;
 
     try {
-        const response = await fetch(apiUrl(url));
+        const response = await fetchWithFallback(url);
         const data = await response.json();
         const raw = data.results || [];
         const results = raw.map((r) => ({ ...r, media_type: 'movie' }));
@@ -1205,7 +1232,7 @@ function renderMovies(items, withBack = false, options = {}) {
 
 async function searchMoviesPage(query, page) {
     const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(query)}&language=ru-RU&page=${page}`;
-    const response = await fetch(apiUrl(url));
+    const response = await fetchWithFallback(url);
     const data = await response.json();
     return {
         results: data.results || [],
@@ -1524,7 +1551,7 @@ function trendingGoPrev(animated) {
 
 async function fetchTrendingWeekItems() {
     const url = `https://api.themoviedb.org/3/trending/all/week?api_key=${API_KEY}&language=ru-RU`;
-    const response = await fetch(apiUrl(url));
+    const response = await fetchWithFallback(url);
     const data = await response.json();
     const raw = data.results || [];
     const filtered = raw.filter((r) => r.media_type === 'movie' || r.media_type === 'tv');
@@ -1688,7 +1715,7 @@ async function loadTrendingSidebar(options = {}) {
 
 async function fetchSearchSuggestions(query) {
     const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(query)}&language=ru-RU&page=1`;
-    const response = await fetch(apiUrl(url));
+    const response = await fetchWithFallback(url);
     const data = await response.json();
     const list = data.results || [];
     return list.slice(0, AUTOCOMPLETE_MAX_ITEMS);
@@ -1815,7 +1842,7 @@ function scheduleSuggestFetch() {
 async function fetchRecommendations(id, mediaType) {
     const type = mediaType === 'tv' ? 'tv' : 'movie';
     const url = `https://api.themoviedb.org/3/${type}/${id}/recommendations?api_key=${API_KEY}&language=ru-RU`;
-    const response = await fetch(apiUrl(url));
+    const response = await fetchWithFallback(url);
     const data = await response.json();
     const list = data.results || [];
     return list.map((r) => ({ ...r, media_type: type }));
@@ -1835,9 +1862,9 @@ async function fetchDetailAndVideos(id, type) {
     const videosUrl = `${base}/videos?api_key=${API_KEY}`;
     const creditsUrl = `${base}/credits?api_key=${API_KEY}&language=ru-RU`;
     const [detailRes, videoRes, creditsRes] = await Promise.all([
-        fetch(apiUrl(detailUrl)),
-        fetch(apiUrl(videosUrl)),
-        fetch(apiUrl(creditsUrl)),
+        fetchWithFallback(detailUrl),
+        fetchWithFallback(videosUrl),
+        fetchWithFallback(creditsUrl),
     ]);
     const details = await detailRes.json();
     const videos = await videoRes.json();
@@ -1847,7 +1874,7 @@ async function fetchDetailAndVideos(id, type) {
 
 async function fetchPersonCredits(personId) {
     const url = `https://api.themoviedb.org/3/person/${personId}/combined_credits?api_key=${API_KEY}&language=ru-RU`;
-    const res = await fetch(apiUrl(url));
+    const res = await fetchWithFallback(url);
     const data = await res.json();
     const cast = (data.cast || []).filter(
         (r) => r.media_type === 'movie' || r.media_type === 'tv'
@@ -2674,7 +2701,7 @@ if (randomMovieBtn) {
         try {
             const page = Math.floor(Math.random() * 10) + 1;
             const url = `https://api.themoviedb.org/3/movie/popular?api_key=${API_KEY}&language=ru-RU&page=${page}`;
-            const response = await fetch(apiUrl(url));
+            const response = await fetchWithFallback(url);
             const data = await response.json();
             const list = (data.results || []).filter((r) => r && r.id);
             if (!list.length) throw new Error('empty');
