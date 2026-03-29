@@ -2,18 +2,26 @@ const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
 const PROXIES = [
     'https://corsproxy.io/?',
     'https://api.allorigins.win/raw?url=',
+    'https://thingproxy.freeboard.io/fetch/',
 ];
 let activeProxyIdx = 0;
 
+function buildProxyRequestUrl(proxyBase, targetCanonicalUrl) {
+    if (proxyBase.includes('thingproxy.freeboard.io')) {
+        return proxyBase + targetCanonicalUrl;
+    }
+    return proxyBase + encodeURIComponent(targetCanonicalUrl);
+}
+
 function apiUrl(url) {
-    return PROXIES[activeProxyIdx] + encodeURIComponent(url);
+    return buildProxyRequestUrl(PROXIES[activeProxyIdx], url);
 }
 
 async function fetchWithFallback(url) {
     // Try direct first
     try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 3000);
+        const timer = setTimeout(() => controller.abort(), 1500);
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(timer);
         if (res.ok) return res;
@@ -23,7 +31,7 @@ async function fetchWithFallback(url) {
     // Try proxies
     for (let i = 0; i < PROXIES.length; i++) {
         try {
-            const proxyUrl = PROXIES[i] + encodeURIComponent(url);
+            const proxyUrl = buildProxyRequestUrl(PROXIES[i], url);
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 8000);
             const res = await fetch(proxyUrl, { signal: controller.signal });
