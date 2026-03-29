@@ -85,7 +85,6 @@ const sortSelectEl = document.getElementById('sortSelect');
 const exportBtn = document.getElementById('exportBtn');
 const importBtn = document.getElementById('importBtn');
 const importFileInput = document.getElementById('importFileInput');
-const dataIoMsg = document.getElementById('dataIoMsg');
 const statFavCount = document.getElementById('statFavCount');
 const statWatchedCount = document.getElementById('statWatchedCount');
 const statAvgRating = document.getElementById('statAvgRating');
@@ -1028,6 +1027,78 @@ async function handleLoadMoreSearch() {
     }
 }
 
+let trendingRotateTimer = null;
+let trendingRotateIndex = 0;
+/** Пауза по hover только после задержки — иначе после innerHTML браузер шлёт mouseenter и гасит интервал. */
+let trendingHoverPauseArmed = false;
+let trendingHoverArmTimer = null;
+
+function disarmTrendingHoverPause() {
+    trendingHoverPauseArmed = false;
+    if (trendingHoverArmTimer !== null) {
+        clearTimeout(trendingHoverArmTimer);
+        trendingHoverArmTimer = null;
+    }
+}
+
+function scheduleArmTrendingHoverPause() {
+    disarmTrendingHoverPause();
+    trendingHoverArmTimer = window.setTimeout(() => {
+        trendingHoverPauseArmed = true;
+        trendingHoverArmTimer = null;
+    }, 350);
+}
+
+function getTrendingSidebarItemEls() {
+    if (!trendingListEl) return [];
+    return Array.from(trendingListEl.querySelectorAll('.sidebar-item'));
+}
+
+function clearTrendingRotation() {
+    if (trendingRotateTimer != null) {
+        clearInterval(trendingRotateTimer);
+        trendingRotateTimer = null;
+    }
+}
+
+function setTrendingActiveIndex(index) {
+    const els = getTrendingSidebarItemEls();
+    if (!els.length) return;
+    const n = els.length;
+    trendingRotateIndex = ((index % n) + n) % n;
+    els.forEach((el, j) => {
+        el.classList.toggle('sidebar-item--active', j === trendingRotateIndex);
+    });
+}
+
+function pauseTrendingRotation() {
+    if (!trendingHoverPauseArmed) return;
+    clearTrendingRotation();
+}
+
+function resumeTrendingRotation() {
+    const els = getTrendingSidebarItemEls();
+    if (!els.length) return;
+    clearTrendingRotation();
+    trendingRotateTimer = window.setInterval(() => {
+        const list = getTrendingSidebarItemEls();
+        if (!list.length) {
+            clearTrendingRotation();
+            return;
+        }
+        const n = list.length;
+        const next = (trendingRotateIndex + 1) % n;
+        setTrendingActiveIndex(next);
+    }, 5000);
+}
+
+function startTrendingListRotation() {
+    const els = getTrendingSidebarItemEls();
+    if (!els.length) return;
+    setTrendingActiveIndex(0);
+    resumeTrendingRotation();
+}
+
 async function fetchTrendingWeekItems() {
     const url = `https://api.themoviedb.org/3/trending/all/week?api_key=${API_KEY}&language=ru-RU`;
     const response = await fetch(apiUrl(url));
@@ -1039,13 +1110,18 @@ async function fetchTrendingWeekItems() {
 
 function renderTrendingSidebar(items) {
     if (!trendingListEl) return;
+    clearTrendingRotation();
+    disarmTrendingHoverPause();
     trendingListEl.innerHTML = '';
+    let itemSlot = 0;
     items.forEach((item) => {
         const title = item.title || item.name || '';
         if (!title) return;
+        const slot = itemSlot;
+        itemSlot += 1;
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'sidebar-card';
+        btn.className = 'sidebar-card sidebar-item';
 
         const thumb = document.createElement('div');
         thumb.className = 'sidebar-card__thumb';
@@ -1087,13 +1163,20 @@ function renderTrendingSidebar(items) {
         body.appendChild(meta);
         btn.appendChild(thumb);
         btn.appendChild(body);
-        btn.addEventListener('click', () => openMovieDetail(item));
+        btn.addEventListener('click', () => {
+            setTrendingActiveIndex(slot);
+            openMovieDetail(item);
+        });
         trendingListEl.appendChild(btn);
     });
+    startTrendingListRotation();
+    scheduleArmTrendingHoverPause();
 }
 
 function showTrendingRetryButton() {
     if (!trendingListEl) return;
+    clearTrendingRotation();
+    disarmTrendingHoverPause();
     trendingListEl.innerHTML = '';
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1104,8 +1187,18 @@ function showTrendingRetryButton() {
     trendingListEl.appendChild(btn);
 }
 
-async function loadTrendingSidebar() {
+function maybeShowWeekHighlightToast(items, enabled) {
+    if (!enabled || !items.length) return;
+    const first = items[0];
+    const t = (first.title || first.name || '').trim();
+    if (t) showToast(`🔥 Новинка недели: ${t}`);
+}
+
+async function loadTrendingSidebar(options = {}) {
+    const showWeekHighlightToast = options.showWeekHighlightToast === true;
     if (!trendingListEl) return;
+    clearTrendingRotation();
+    disarmTrendingHoverPause();
     trendingListEl.innerHTML = '<p class="sidebar__loading">Загрузка...</p>';
     try {
         const items = await fetchTrendingWeekItems();
@@ -1114,6 +1207,7 @@ async function loadTrendingSidebar() {
             return;
         }
         renderTrendingSidebar(items);
+        maybeShowWeekHighlightToast(items, showWeekHighlightToast);
     } catch {
         // Silent retry once after 3 s
         setTimeout(async () => {
@@ -1121,6 +1215,7 @@ async function loadTrendingSidebar() {
                 const items = await fetchTrendingWeekItems();
                 if (items.length) {
                     renderTrendingSidebar(items);
+                    maybeShowWeekHighlightToast(items, showWeekHighlightToast);
                 } else {
                     showTrendingRetryButton();
                 }
@@ -2102,6 +2197,11 @@ if (trendingRefreshBtn) {
     trendingRefreshBtn.addEventListener('click', loadTrendingSidebar);
 }
 
+if (trendingListEl) {
+    trendingListEl.addEventListener('mouseenter', pauseTrendingRotation);
+    trendingListEl.addEventListener('mouseleave', resumeTrendingRotation);
+}
+
 if (randomMovieBtn) {
     randomMovieBtn.addEventListener('click', async () => {
         randomMovieBtn.textContent = 'Загрузка...';
@@ -2124,20 +2224,37 @@ if (randomMovieBtn) {
     });
 }
 
-/* ── Data export / import ──────────────────────────────────────── */
-let dataIoMsgTimer = null;
-
-function showDataIoMsg(text) {
-    if (!dataIoMsg) return;
-    if (dataIoMsgTimer) clearTimeout(dataIoMsgTimer);
-    dataIoMsg.textContent = text;
-    dataIoMsg.hidden = false;
-    dataIoMsgTimer = setTimeout(() => {
-        dataIoMsg.hidden = true;
-        dataIoMsg.textContent = '';
-        dataIoMsgTimer = null;
-    }, 2000);
+/* ── Toasts ───────────────────────────────────────────────────── */
+function showToast(message, duration = 4000) {
+    const stack = document.getElementById('toastStack');
+    if (!stack) return;
+    const el = document.createElement('div');
+    el.className = 'toast is-entering';
+    el.setAttribute('role', 'status');
+    el.textContent = message;
+    stack.appendChild(el);
+    const detach = () => {
+        if (!el.isConnected) return;
+        el.remove();
+    };
+    window.setTimeout(() => {
+        el.classList.remove('is-entering');
+        el.classList.add('is-leaving');
+        const fallbackMs = 400;
+        const t = window.setTimeout(detach, fallbackMs);
+        el.addEventListener(
+            'animationend',
+            (e) => {
+                if (e.target !== el || e.animationName !== 'toast-out') return;
+                clearTimeout(t);
+                detach();
+            },
+            { once: true }
+        );
+    }, duration);
 }
+
+/* ── Data export / import ──────────────────────────────────────── */
 
 function handleExport() {
     const payload = {
@@ -2204,9 +2321,9 @@ if (importBtn && importFileInput) {
                 updateWatchedBar();
                 refreshStats();
                 renderSearchHistoryChips();
-                showDataIoMsg('✓ Данные импортированы');
+                showToast('✓ Данные импортированы');
             } catch {
-                showDataIoMsg('✗ Ошибка импорта');
+                showToast('✗ Ошибка импорта');
             }
         };
         reader.readAsText(file, 'utf-8');
@@ -2222,7 +2339,7 @@ renderSearchHistoryChips();
 updateSearchHistoryVisibility();
 initGenreBrowser();
 resultsEl.innerHTML = '';
-loadTrendingSidebar();
+loadTrendingSidebar({ showWeekHighlightToast: true });
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {

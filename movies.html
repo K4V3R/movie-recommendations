@@ -31,7 +31,6 @@
             <button type="button" class="data-io-btn" id="exportBtn">⬇ Экспорт</button>
             <button type="button" class="data-io-btn" id="importBtn">⬆ Импорт</button>
             <input type="file" id="importFileInput" accept=".json" hidden aria-hidden="true">
-            <span class="data-io-msg" id="dataIoMsg" hidden aria-live="polite"></span>
         </div>
 
         <div class="search-box">
@@ -134,6 +133,8 @@
         <span class="kb-hint__sep">·</span>
         <span class="kb-hint__item"><kbd>Esc</kbd> Закрыть</span>
     </div>
+
+    <div class="toast-stack" id="toastStack" aria-live="polite" aria-relevant="additions"></div>
 
     <script src="movies.js"></script>
 </body>
