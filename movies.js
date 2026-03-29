@@ -112,6 +112,17 @@ let searchTotalPages = 0;
 let searchCurrentPage = 0;
 
 let activeBrowserGenreId = null;
+/** Результаты — домашние подборки (не список filterBaseItems). */
+let homeScreenActive = false;
+
+const HOME_SCREEN_COLLECTIONS = [
+    { heading: 'Популярное', genreId: null },
+    { heading: 'Боевики', genreId: 28 },
+    { heading: 'Комедии', genreId: 35 },
+    { heading: 'Фантастика', genreId: 878 },
+];
+
+let restoreHomeDebounceTimer = null;
 
 function resetSearchPagination() {
     searchPaginationQuery = null;
@@ -145,7 +156,192 @@ function clearGenreBrowserState() {
     clearResultsContextHeading();
 }
 
+function canRestoreHomeScreen() {
+    if (!searchInput || searchInput.value.trim() !== '') return false;
+    if (activeBrowserGenreId !== null) return false;
+    if (currentViewIsFavourites || currentViewIsWatched) return false;
+    if (activeRenderWithBack) return false;
+    return true;
+}
+
+function tryRestoreHomeScreen() {
+    if (!canRestoreHomeScreen()) return;
+    resetSearchPagination();
+    filterBaseItems = null;
+    previousResults = null;
+    viewSnapshotBeforeFavourites = null;
+    clearResultsContextHeading();
+    currentViewIsFavourites = false;
+    currentViewIsWatched = false;
+    activeRenderWithBack = false;
+    activeRenderOptions = {};
+    syncFilterChips();
+    updateFilterBarVisibility();
+    renderHomeScreen();
+}
+
+function tryRestoreHomeScreenDebounced() {
+    if (restoreHomeDebounceTimer !== null) clearTimeout(restoreHomeDebounceTimer);
+    restoreHomeDebounceTimer = window.setTimeout(() => {
+        restoreHomeDebounceTimer = null;
+        tryRestoreHomeScreen();
+    }, 320);
+}
+
+async function fetchHomePopularRow() {
+    const url = `https://api.themoviedb.org/3/movie/popular?api_key=${API_KEY}&language=ru-RU&page=1`;
+    const response = await fetch(apiUrl(url));
+    const data = await response.json();
+    const raw = data.results || [];
+    return raw
+        .slice(0, 10)
+        .filter((r) => r && r.id)
+        .map((r) => ({ ...r, media_type: 'movie' }));
+}
+
+async function fetchHomeDiscoverRow(genreId) {
+    const url = `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU&sort_by=popularity.desc&with_genres=${genreId}&page=1`;
+    const response = await fetch(apiUrl(url));
+    const data = await response.json();
+    const raw = data.results || [];
+    return raw
+        .slice(0, 10)
+        .filter((r) => r && r.id)
+        .map((r) => ({ ...r, media_type: 'movie' }));
+}
+
+function createHomeCompactCard(item, rowItems) {
+    const titleRaw = item.title || item.name || 'Без названия';
+    const va = item.vote_average;
+    const ratingText =
+        typeof va === 'number' && Number.isFinite(va)
+            ? va.toFixed(1)
+            : va != null && Number.isFinite(Number(va))
+              ? Number(va).toFixed(1)
+              : '—';
+
+    const detailPayload = {
+        ...item,
+        media_type: item.media_type || 'movie',
+        _sourceResults: rowItems,
+    };
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'home-compact-card';
+    btn.setAttribute('role', 'listitem');
+    btn.addEventListener('click', () => openMovieDetail(detailPayload));
+
+    const posterWrap = document.createElement('div');
+    posterWrap.className = 'home-compact-card__poster';
+    if (item.poster_path) {
+        const img = document.createElement('img');
+        img.src = `https://image.tmdb.org/t/p/w185${item.poster_path}`;
+        img.alt = '';
+        posterWrap.appendChild(img);
+    } else {
+        posterWrap.textContent = '🎬';
+    }
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'home-compact-card__title';
+    titleEl.textContent = titleRaw;
+
+    const ratingBadge = document.createElement('span');
+    ratingBadge.className = 'home-compact-card__rating';
+    ratingBadge.textContent = `★ ${ratingText}`;
+
+    btn.appendChild(posterWrap);
+    btn.appendChild(titleEl);
+    btn.appendChild(ratingBadge);
+    return btn;
+}
+
+function buildHomeSection(heading, items) {
+    const section = document.createElement('section');
+    section.className = 'home-section';
+
+    const h = document.createElement('h2');
+    h.className = 'home-section__heading';
+    h.textContent = heading;
+    section.appendChild(h);
+
+    const row = document.createElement('div');
+    row.className = 'home-row';
+
+    const track = document.createElement('div');
+    track.className = 'home-row__track';
+    track.setAttribute('role', 'list');
+
+    if (!items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'home-section__empty';
+        empty.textContent = 'Не удалось загрузить подборку.';
+        track.appendChild(empty);
+    } else {
+        const rowItems = items.map((it) => ({ ...it, media_type: it.media_type || 'movie' }));
+        items.forEach((item) => {
+            track.appendChild(createHomeCompactCard(item, rowItems));
+        });
+    }
+
+    row.appendChild(track);
+    section.appendChild(row);
+    return section;
+}
+
+async function renderHomeScreen() {
+    if (!resultsEl) return;
+    homeScreenActive = true;
+    filterBaseItems = null;
+    currentViewIsFavourites = false;
+    currentViewIsWatched = false;
+    activeRenderWithBack = false;
+    activeRenderOptions = {};
+    resetSearchPagination();
+    lastRenderedItems = [];
+    lastRenderedWithBack = false;
+    updateFilterBarVisibility();
+    clearResultsContextHeading();
+
+    resultsEl.innerHTML = '';
+    const shell = document.createElement('div');
+    shell.className = 'home-screen';
+    const loading = document.createElement('p');
+    loading.className = 'home-screen__loading';
+    loading.textContent = 'Загрузка подборок...';
+    shell.appendChild(loading);
+    resultsEl.appendChild(shell);
+
+    const settled = await Promise.allSettled(
+        HOME_SCREEN_COLLECTIONS.map((col) =>
+            col.genreId == null ? fetchHomePopularRow() : fetchHomeDiscoverRow(col.genreId)
+        )
+    );
+
+    shell.innerHTML = '';
+    let anyOk = false;
+    settled.forEach((result, i) => {
+        const items = result.status === 'fulfilled' ? result.value : [];
+        if (items.length) anyOk = true;
+    });
+    if (!anyOk) {
+        const err = document.createElement('p');
+        err.className = 'home-screen__error';
+        err.textContent =
+            'Не удалось загрузить подборки. Попробуйте обновить страницу или воспользоваться поиском.';
+        shell.appendChild(err);
+    } else {
+        settled.forEach((result, i) => {
+            const items = result.status === 'fulfilled' ? result.value : [];
+            shell.appendChild(buildHomeSection(HOME_SCREEN_COLLECTIONS[i].heading, items));
+        });
+    }
+    updateSearchHistoryVisibility();
+}
+
 async function loadGenreDiscover(id, label) {
+    homeScreenActive = false;
     hideSearchSuggest();
     if (searchInput) searchInput.value = '';
     resetSearchPagination();
@@ -668,6 +864,7 @@ function openWatchedPanel() {
         filterMinRating,
         withBack: lastRenderedWithBack,
         previousResults,
+        restoreHomeScreen: homeScreenActive,
     };
     renderMovies(loadWatched(), true, { watchedView: true });
 }
@@ -906,6 +1103,20 @@ function rebuildResultsFromFilters(withBack, options = {}) {
                 const snap = viewSnapshotBeforeFavourites;
                 viewSnapshotBeforeFavourites = null;
                 if (snap) {
+                    if (snap.restoreHomeScreen) {
+                        previousResults = null;
+                        filterBaseItems = null;
+                        filterType = snap.filterType;
+                        filterMinRating = snap.filterMinRating;
+                        currentViewIsFavourites = false;
+                        activeRenderWithBack = false;
+                        activeRenderOptions = {};
+                        syncFilterChips();
+                        updateFilterBarVisibility();
+                        renderHomeScreen();
+                        updateSearchHistoryVisibility();
+                        return;
+                    }
                     previousResults = snap.previousResults;
                     filterBaseItems = snap.filterBaseItems.slice();
                     filterType = snap.filterType;
@@ -917,6 +1128,20 @@ function rebuildResultsFromFilters(withBack, options = {}) {
                 const snap = viewSnapshotBeforeFavourites;
                 viewSnapshotBeforeFavourites = null;
                 if (snap) {
+                    if (snap.restoreHomeScreen) {
+                        previousResults = null;
+                        filterBaseItems = null;
+                        filterType = snap.filterType;
+                        filterMinRating = snap.filterMinRating;
+                        currentViewIsWatched = false;
+                        activeRenderWithBack = false;
+                        activeRenderOptions = {};
+                        syncFilterChips();
+                        updateFilterBarVisibility();
+                        renderHomeScreen();
+                        updateSearchHistoryVisibility();
+                        return;
+                    }
                     previousResults = snap.previousResults;
                     filterBaseItems = snap.filterBaseItems.slice();
                     filterType = snap.filterType;
@@ -963,6 +1188,7 @@ function rebuildResultsFromFilters(withBack, options = {}) {
 }
 
 function renderMovies(items, withBack = false, options = {}) {
+    homeScreenActive = false;
     const { favouritesView = false, watchedView = false, resetFilters = false } = options;
     if (favouritesView || watchedView || withBack) {
         resetSearchPagination();
@@ -1027,9 +1253,12 @@ async function handleLoadMoreSearch() {
     }
 }
 
-let trendingRotateTimer = null;
-let trendingRotateIndex = 0;
-/** Пауза по hover только после задержки — иначе после innerHTML браузер шлёт mouseenter и гасит интервал. */
+let trendingCarouselItems = [];
+let trendingCarouselIndex = 0;
+let trendingAutoTimer = null;
+let trendingTransitionLock = false;
+let trendingSpotlightRoot = null;
+/** Пауза по hover только после задержки — иначе после innerHTML браузер шлёт mouseenter и гасит таймер. */
 let trendingHoverPauseArmed = false;
 let trendingHoverArmTimer = null;
 
@@ -1049,54 +1278,248 @@ function scheduleArmTrendingHoverPause() {
     }, 350);
 }
 
-function getTrendingSidebarItemEls() {
-    if (!trendingListEl) return [];
-    return Array.from(trendingListEl.querySelectorAll('.sidebar-item'));
-}
-
-function clearTrendingRotation() {
-    if (trendingRotateTimer != null) {
-        clearInterval(trendingRotateTimer);
-        trendingRotateTimer = null;
+function clearTrendingAutoTimer() {
+    if (trendingAutoTimer != null) {
+        clearTimeout(trendingAutoTimer);
+        trendingAutoTimer = null;
     }
 }
 
-function setTrendingActiveIndex(index) {
-    const els = getTrendingSidebarItemEls();
-    if (!els.length) return;
-    const n = els.length;
-    trendingRotateIndex = ((index % n) + n) % n;
-    els.forEach((el, j) => {
-        el.classList.toggle('sidebar-item--active', j === trendingRotateIndex);
-    });
-}
-
-function pauseTrendingRotation() {
+function pauseTrendingAuto() {
     if (!trendingHoverPauseArmed) return;
-    clearTrendingRotation();
+    clearTrendingAutoTimer();
 }
 
-function resumeTrendingRotation() {
-    const els = getTrendingSidebarItemEls();
-    if (!els.length) return;
-    clearTrendingRotation();
-    trendingRotateTimer = window.setInterval(() => {
-        const list = getTrendingSidebarItemEls();
-        if (!list.length) {
-            clearTrendingRotation();
+function scheduleTrendingAuto() {
+    clearTrendingAutoTimer();
+    if (!trendingSpotlightRoot || trendingCarouselItems.length <= 1) return;
+    trendingAutoTimer = window.setTimeout(() => {
+        trendingAutoTimer = null;
+        if (trendingTransitionLock) {
+            scheduleTrendingAuto();
             return;
         }
-        const n = list.length;
-        const next = (trendingRotateIndex + 1) % n;
-        setTrendingActiveIndex(next);
-    }, 5000);
+        trendingGoNext(true);
+    }, 4000);
 }
 
-function startTrendingListRotation() {
-    const els = getTrendingSidebarItemEls();
-    if (!els.length) return;
-    setTrendingActiveIndex(0);
-    resumeTrendingRotation();
+function resumeTrendingAuto() {
+    scheduleTrendingAuto();
+}
+
+function buildTrendingCard(item) {
+    const title = item.title || item.name || 'Без названия';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'trending-spotlight__card sidebar-card';
+
+    const thumb = document.createElement('div');
+    thumb.className = 'sidebar-card__thumb';
+    if (item.poster_path) {
+        const img = document.createElement('img');
+        img.src = `https://image.tmdb.org/t/p/w92${item.poster_path}`;
+        img.alt = '';
+        thumb.appendChild(img);
+    } else {
+        thumb.textContent = '🎬';
+    }
+
+    const body = document.createElement('div');
+    body.className = 'sidebar-card__body';
+    const titleEl = document.createElement('span');
+    titleEl.className = 'sidebar-card__title';
+    titleEl.textContent = title;
+
+    const meta = document.createElement('div');
+    meta.className = 'sidebar-card__meta';
+    const yearStr = getReleaseYear(item);
+    if (yearStr) {
+        const y = document.createElement('span');
+        y.textContent = yearStr;
+        meta.appendChild(y);
+    }
+    const rating =
+        item.vote_average != null && !Number.isNaN(Number(item.vote_average))
+            ? Number(item.vote_average).toFixed(1)
+            : null;
+    if (rating != null) {
+        const r = document.createElement('span');
+        r.className = 'sidebar-card__rating';
+        r.textContent = `★ ${rating}`;
+        meta.appendChild(r);
+    }
+
+    body.appendChild(titleEl);
+    body.appendChild(meta);
+    btn.appendChild(thumb);
+    btn.appendChild(body);
+    btn.addEventListener('click', () => openMovieDetail(item));
+    return btn;
+}
+
+function refreshTrendingVisibleCard() {
+    if (!trendingSpotlightRoot || !trendingCarouselItems.length) return;
+    const paneA = trendingSpotlightRoot.querySelector('.trending-spotlight__pane--a');
+    const paneB = trendingSpotlightRoot.querySelector('.trending-spotlight__pane--b');
+    if (paneB) {
+        paneB.innerHTML = '';
+        paneB.classList.remove(
+            'trending-spotlight__pane--exit-up',
+            'trending-spotlight__pane--exit-down',
+            'trending-spotlight__pane--enter-from-bottom',
+            'trending-spotlight__pane--enter-from-top'
+        );
+    }
+    if (paneA) {
+        paneA.innerHTML = '';
+        paneA.classList.remove(
+            'trending-spotlight__pane--exit-up',
+            'trending-spotlight__pane--exit-down',
+            'trending-spotlight__pane--enter-from-bottom',
+            'trending-spotlight__pane--enter-from-top'
+        );
+        paneA.appendChild(buildTrendingCard(trendingCarouselItems[trendingCarouselIndex]));
+    }
+}
+
+function updateTrendingIndicator() {
+    if (!trendingSpotlightRoot) return;
+    const n = trendingCarouselItems.length;
+    const counter = trendingSpotlightRoot.querySelector('.trending-spotlight__counter-text');
+    if (counter) {
+        counter.textContent = n ? `${trendingCarouselIndex + 1} / ${n}` : '';
+    }
+    const dotsWrap = trendingSpotlightRoot.querySelector('.trending-spotlight__dots');
+    if (dotsWrap) {
+        dotsWrap.innerHTML = '';
+        for (let i = 0; i < n; i++) {
+            const d = document.createElement('span');
+            d.className = 'trending-spotlight__dot' + (i === trendingCarouselIndex ? ' is-active' : '');
+            d.setAttribute('aria-hidden', 'true');
+            dotsWrap.appendChild(d);
+        }
+    }
+    const prevBtn = trendingSpotlightRoot.querySelector('[data-trending-dir="prev"]');
+    const nextBtn = trendingSpotlightRoot.querySelector('[data-trending-dir="next"]');
+    if (prevBtn) prevBtn.disabled = n < 2;
+    if (nextBtn) nextBtn.disabled = n < 2;
+}
+
+function animNameMatchesExit(name, direction) {
+    if (!name) return false;
+    const up = name.includes('trending-spotlight-exit-up');
+    const down = name.includes('trending-spotlight-exit-down');
+    return direction === 'forward' ? up : down;
+}
+
+function runTrendingStep(toIndex, direction, animated) {
+    clearTrendingAutoTimer();
+    const n = trendingCarouselItems.length;
+    const reduceMotion =
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (n < 2 || !animated || reduceMotion) {
+        trendingCarouselIndex = toIndex;
+        refreshTrendingVisibleCard();
+        updateTrendingIndicator();
+        scheduleTrendingAuto();
+        trendingTransitionLock = false;
+        return;
+    }
+    if (trendingTransitionLock) return;
+    const paneA = trendingSpotlightRoot && trendingSpotlightRoot.querySelector('.trending-spotlight__pane--a');
+    const paneB = trendingSpotlightRoot && trendingSpotlightRoot.querySelector('.trending-spotlight__pane--b');
+    if (!paneA || !paneB) {
+        trendingCarouselIndex = toIndex;
+        refreshTrendingVisibleCard();
+        updateTrendingIndicator();
+        scheduleTrendingAuto();
+        return;
+    }
+    trendingTransitionLock = true;
+    paneB.innerHTML = '';
+    paneB.appendChild(buildTrendingCard(trendingCarouselItems[toIndex]));
+    paneA.classList.remove(
+        'trending-spotlight__pane--exit-up',
+        'trending-spotlight__pane--exit-down',
+        'trending-spotlight__pane--enter-from-bottom',
+        'trending-spotlight__pane--enter-from-top'
+    );
+    paneB.classList.remove(
+        'trending-spotlight__pane--exit-up',
+        'trending-spotlight__pane--exit-down',
+        'trending-spotlight__pane--enter-from-bottom',
+        'trending-spotlight__pane--enter-from-top'
+    );
+    void paneB.offsetWidth;
+    if (direction === 'forward') {
+        paneA.classList.add('trending-spotlight__pane--exit-up');
+        paneB.classList.add('trending-spotlight__pane--enter-from-bottom');
+    } else {
+        paneA.classList.add('trending-spotlight__pane--exit-down');
+        paneB.classList.add('trending-spotlight__pane--enter-from-top');
+    }
+
+    let settled = false;
+    let fallbackTimer = null;
+    const settle = () => {
+        if (settled) return;
+        settled = true;
+        if (fallbackTimer != null) clearTimeout(fallbackTimer);
+        if (paneA._trendingAnimEnd) {
+            paneA.removeEventListener('animationend', paneA._trendingAnimEnd);
+            delete paneA._trendingAnimEnd;
+        }
+        trendingCarouselIndex = toIndex;
+        paneA.innerHTML = '';
+        paneB.innerHTML = '';
+        paneA.appendChild(buildTrendingCard(trendingCarouselItems[trendingCarouselIndex]));
+        paneA.classList.remove(
+            'trending-spotlight__pane--exit-up',
+            'trending-spotlight__pane--exit-down',
+            'trending-spotlight__pane--enter-from-bottom',
+            'trending-spotlight__pane--enter-from-top'
+        );
+        paneB.classList.remove(
+            'trending-spotlight__pane--exit-up',
+            'trending-spotlight__pane--exit-down',
+            'trending-spotlight__pane--enter-from-bottom',
+            'trending-spotlight__pane--enter-from-top'
+        );
+        trendingTransitionLock = false;
+        updateTrendingIndicator();
+        scheduleTrendingAuto();
+    };
+
+    fallbackTimer = window.setTimeout(() => settle(), 600);
+
+    const onEnd = (e) => {
+        if (e.target !== paneA) return;
+        if (!animNameMatchesExit(e.animationName, direction)) return;
+        settle();
+    };
+    paneA._trendingAnimEnd = onEnd;
+    paneA.addEventListener('animationend', onEnd);
+}
+
+function trendingGoNext(animated) {
+    const n = trendingCarouselItems.length;
+    if (n < 2) {
+        scheduleTrendingAuto();
+        return;
+    }
+    const to = (trendingCarouselIndex + 1) % n;
+    runTrendingStep(to, 'forward', animated);
+}
+
+function trendingGoPrev(animated) {
+    const n = trendingCarouselItems.length;
+    if (n < 2) {
+        scheduleTrendingAuto();
+        return;
+    }
+    const to = (trendingCarouselIndex - 1 + n) % n;
+    runTrendingStep(to, 'back', animated);
 }
 
 async function fetchTrendingWeekItems() {
@@ -1110,73 +1533,108 @@ async function fetchTrendingWeekItems() {
 
 function renderTrendingSidebar(items) {
     if (!trendingListEl) return;
-    clearTrendingRotation();
+    clearTrendingAutoTimer();
     disarmTrendingHoverPause();
-    trendingListEl.innerHTML = '';
-    let itemSlot = 0;
+    trendingSpotlightRoot = null;
+    trendingTransitionLock = false;
+
+    const filtered = [];
     items.forEach((item) => {
         const title = item.title || item.name || '';
         if (!title) return;
-        const slot = itemSlot;
-        itemSlot += 1;
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'sidebar-card sidebar-item';
-
-        const thumb = document.createElement('div');
-        thumb.className = 'sidebar-card__thumb';
-        if (item.poster_path) {
-            const img = document.createElement('img');
-            img.src = `https://image.tmdb.org/t/p/w92${item.poster_path}`;
-            img.alt = '';
-            thumb.appendChild(img);
-        } else {
-            thumb.textContent = '🎬';
-        }
-
-        const body = document.createElement('div');
-        body.className = 'sidebar-card__body';
-        const titleEl = document.createElement('span');
-        titleEl.className = 'sidebar-card__title';
-        titleEl.textContent = title;
-
-        const meta = document.createElement('div');
-        meta.className = 'sidebar-card__meta';
-        const yearStr = getReleaseYear(item);
-        if (yearStr) {
-            const y = document.createElement('span');
-            y.textContent = yearStr;
-            meta.appendChild(y);
-        }
-        const rating =
-            item.vote_average != null && !Number.isNaN(item.vote_average)
-                ? Number(item.vote_average).toFixed(1)
-                : null;
-        if (rating != null) {
-            const r = document.createElement('span');
-            r.className = 'sidebar-card__rating';
-            r.textContent = `★ ${rating}`;
-            meta.appendChild(r);
-        }
-
-        body.appendChild(titleEl);
-        body.appendChild(meta);
-        btn.appendChild(thumb);
-        btn.appendChild(body);
-        btn.addEventListener('click', () => {
-            setTrendingActiveIndex(slot);
-            openMovieDetail(item);
-        });
-        trendingListEl.appendChild(btn);
+        filtered.push(item);
     });
-    startTrendingListRotation();
+    trendingCarouselItems = filtered;
+    trendingCarouselIndex = 0;
+
+    trendingListEl.innerHTML = '';
+    if (!filtered.length) {
+        const p = document.createElement('p');
+        p.className = 'sidebar__loading';
+        p.textContent = 'Нет данных для отображения.';
+        trendingListEl.appendChild(p);
+        return;
+    }
+
+    const spotlight = document.createElement('div');
+    spotlight.className = 'trending-spotlight';
+    spotlight.setAttribute('role', 'region');
+    spotlight.setAttribute('aria-label', 'Карусель новинок недели');
+
+    const viewport = document.createElement('div');
+    viewport.className = 'trending-spotlight__viewport';
+
+    const stage = document.createElement('div');
+    stage.className = 'trending-spotlight__stage';
+
+    const paneA = document.createElement('div');
+    paneA.className = 'trending-spotlight__pane trending-spotlight__pane--a';
+    const paneB = document.createElement('div');
+    paneB.className = 'trending-spotlight__pane trending-spotlight__pane--b';
+
+    stage.appendChild(paneA);
+    stage.appendChild(paneB);
+    viewport.appendChild(stage);
+    spotlight.appendChild(viewport);
+
+    const nav = document.createElement('div');
+    nav.className = 'trending-spotlight__nav';
+
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.className = 'trending-spotlight__arrow';
+    prevBtn.setAttribute('data-trending-dir', 'prev');
+    prevBtn.setAttribute('aria-label', 'Предыдущая новинка');
+    prevBtn.textContent = '‹';
+
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'trending-spotlight__arrow';
+    nextBtn.setAttribute('data-trending-dir', 'next');
+    nextBtn.setAttribute('aria-label', 'Следующая новинка');
+    nextBtn.textContent = '›';
+
+    nav.appendChild(prevBtn);
+    nav.appendChild(nextBtn);
+    spotlight.appendChild(nav);
+
+    const indicator = document.createElement('div');
+    indicator.className = 'trending-spotlight__indicator';
+    indicator.setAttribute('aria-live', 'polite');
+
+    const counterText = document.createElement('span');
+    counterText.className = 'trending-spotlight__counter-text';
+
+    const dots = document.createElement('div');
+    dots.className = 'trending-spotlight__dots';
+
+    indicator.appendChild(counterText);
+    indicator.appendChild(dots);
+    spotlight.appendChild(indicator);
+
+    trendingListEl.appendChild(spotlight);
+    trendingSpotlightRoot = spotlight;
+
+    paneA.appendChild(buildTrendingCard(filtered[0]));
+    updateTrendingIndicator();
+
+    prevBtn.addEventListener('click', () => trendingGoPrev(true));
+    nextBtn.addEventListener('click', () => trendingGoNext(true));
+
+    spotlight.addEventListener('mouseenter', pauseTrendingAuto);
+    spotlight.addEventListener('mouseleave', resumeTrendingAuto);
+
     scheduleArmTrendingHoverPause();
+    scheduleTrendingAuto();
 }
 
 function showTrendingRetryButton() {
     if (!trendingListEl) return;
-    clearTrendingRotation();
+    clearTrendingAutoTimer();
     disarmTrendingHoverPause();
+    trendingSpotlightRoot = null;
+    trendingCarouselItems = [];
+    trendingTransitionLock = false;
     trendingListEl.innerHTML = '';
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1197,8 +1655,10 @@ function maybeShowWeekHighlightToast(items, enabled) {
 async function loadTrendingSidebar(options = {}) {
     const showWeekHighlightToast = options.showWeekHighlightToast === true;
     if (!trendingListEl) return;
-    clearTrendingRotation();
+    clearTrendingAutoTimer();
     disarmTrendingHoverPause();
+    trendingSpotlightRoot = null;
+    trendingTransitionLock = false;
     trendingListEl.innerHTML = '<p class="sidebar__loading">Загрузка...</p>';
     try {
         const items = await fetchTrendingWeekItems();
@@ -1922,12 +2382,14 @@ function openFavouritesPanel() {
         filterMinRating,
         withBack: lastRenderedWithBack,
         previousResults,
+        restoreHomeScreen: homeScreenActive,
     };
     const favs = loadFavourites();
     renderMovies(favs, true, { favouritesView: true });
 }
 
 async function loadRecommendations(item) {
+    homeScreenActive = false;
     clearGenreBrowserState();
     previousResults = item._sourceResults;
 
@@ -1951,8 +2413,12 @@ async function loadRecommendations(item) {
 async function handleSearch() {
     hideSearchSuggest();
     const query = searchInput.value.trim();
-    if (!query) return;
+    if (!query) {
+        tryRestoreHomeScreen();
+        return;
+    }
 
+    homeScreenActive = false;
     clearGenreBrowserState();
 
     resetSearchPagination();
@@ -2056,6 +2522,9 @@ searchBtn.addEventListener('click', handleSearch);
 
 searchInput.addEventListener('input', () => {
     scheduleSuggestFetch();
+    if (searchInput.value.trim() === '') {
+        tryRestoreHomeScreenDebounced();
+    }
 });
 
 searchInput.addEventListener('focus', () => {
@@ -2098,6 +2567,7 @@ document.addEventListener('keydown', (e) => {
     if (document.activeElement === searchInput) {
         searchInput.value = '';
         searchInput.blur();
+        tryRestoreHomeScreen();
     }
 });
 
@@ -2195,11 +2665,6 @@ document.addEventListener('keydown', (e) => {
 if (trendingRefreshBtn) {
     trendingRefreshBtn.setAttribute('aria-label', 'Обновить список новинок');
     trendingRefreshBtn.addEventListener('click', loadTrendingSidebar);
-}
-
-if (trendingListEl) {
-    trendingListEl.addEventListener('mouseenter', pauseTrendingRotation);
-    trendingListEl.addEventListener('mouseleave', resumeTrendingRotation);
 }
 
 if (randomMovieBtn) {
@@ -2338,7 +2803,7 @@ syncFilterChips();
 renderSearchHistoryChips();
 updateSearchHistoryVisibility();
 initGenreBrowser();
-resultsEl.innerHTML = '';
+renderHomeScreen();
 loadTrendingSidebar({ showWeekHighlightToast: true });
 
 if ('serviceWorker' in navigator) {
