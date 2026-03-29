@@ -110,6 +110,15 @@ const searchHistoryEl = document.getElementById('searchHistory');
 const searchHistoryChipsEl = document.getElementById('searchHistoryChips');
 const searchHistoryClearAllEl = document.getElementById('searchHistoryClearAll');
 const searchSuggestEl = document.getElementById('searchSuggest');
+const pickPanel = document.getElementById('pickPanel');
+const pickPanelToggle = document.getElementById('pickPanelToggle');
+const pickPanelCollapsible = document.getElementById('pickPanelCollapsible');
+const pickSuggestInput = document.getElementById('pickSuggestInput');
+const pickSearchSuggestEl = document.getElementById('pickSearchSuggest');
+const pickSelectedChipsEl = document.getElementById('pickSelectedChips');
+const pickRunBtn = document.getElementById('pickRunBtn');
+const pickPanelResults = document.getElementById('pickPanelResults');
+const pickResultsListEl = document.getElementById('pickPanelResultsList');
 const trendingListEl = document.getElementById('trendingList');
 const trendingRefreshBtn = document.getElementById('trendingRefresh');
 const sidebarGenreChips = document.getElementById('sidebarGenreChips');
@@ -127,6 +136,11 @@ const statFavGenre = document.getElementById('statFavGenre');
 let previousResults = null;
 let autocompleteTimer = null;
 let suggestRequestId = 0;
+let pickAutocompleteTimer = null;
+let pickSuggestRequestId = 0;
+/** Выбранные пользователем фильмы/сериалы для подбора по жанрам (до 5 шт.). */
+let pickSelectedMovies = [];
+const PICK_MAX_SELECTIONS = 5;
 let detailModalCloseTimer = null;
 let lastRenderedItems = [];
 let lastRenderedWithBack = false;
@@ -155,6 +169,9 @@ const HOME_SCREEN_COLLECTIONS = [
     { heading: 'Комедии', genreId: 35 },
     { heading: 'Фантастика', genreId: 878 },
 ];
+
+const HOME_COLLECTION_ROW_LIMIT = 30;
+const HOME_POPULAR_ROW_LIMIT = 50;
 
 let restoreHomeDebounceTimer = null;
 
@@ -222,26 +239,43 @@ function tryRestoreHomeScreenDebounced() {
     }, 320);
 }
 
+function mergeHomeMoviePages(dataObjects, maxLen = HOME_COLLECTION_ROW_LIMIT) {
+    const seen = new Set();
+    const out = [];
+    for (const data of dataObjects) {
+        const raw = (data && data.results) || [];
+        for (const r of raw) {
+            if (!r || r.id == null) continue;
+            if (seen.has(r.id)) continue;
+            seen.add(r.id);
+            out.push({ ...r, media_type: 'movie' });
+            if (out.length >= maxLen) return out;
+        }
+    }
+    return out;
+}
+
 async function fetchHomePopularRow() {
-    const url = `https://api.themoviedb.org/3/movie/popular?api_key=${API_KEY}&language=ru-RU&page=1`;
-    const response = await fetchWithFallback(url);
-    const data = await response.json();
-    const raw = data.results || [];
-    return raw
-        .slice(0, 10)
-        .filter((r) => r && r.id)
-        .map((r) => ({ ...r, media_type: 'movie' }));
+    const pageUrl = (page) =>
+        `https://api.themoviedb.org/3/movie/popular?api_key=${API_KEY}&language=ru-RU&page=${page}`;
+    const [res1, res2, res3] = await Promise.all([
+        fetchWithFallback(pageUrl(1)),
+        fetchWithFallback(pageUrl(2)),
+        fetchWithFallback(pageUrl(3)),
+    ]);
+    const [data1, data2, data3] = await Promise.all([res1.json(), res2.json(), res3.json()]);
+    return mergeHomeMoviePages([data1, data2, data3], HOME_POPULAR_ROW_LIMIT);
 }
 
 async function fetchHomeDiscoverRow(genreId) {
-    const url = `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU&sort_by=popularity.desc&with_genres=${genreId}&page=1`;
-    const response = await fetchWithFallback(url);
-    const data = await response.json();
-    const raw = data.results || [];
-    return raw
-        .slice(0, 10)
-        .filter((r) => r && r.id)
-        .map((r) => ({ ...r, media_type: 'movie' }));
+    const pageUrl = (page) =>
+        `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU&sort_by=popularity.desc&with_genres=${genreId}&page=${page}`;
+    const [res1, res2] = await Promise.all([
+        fetchWithFallback(pageUrl(1)),
+        fetchWithFallback(pageUrl(2)),
+    ]);
+    const [data1, data2] = await Promise.all([res1.json(), res2.json()]);
+    return mergeHomeMoviePages([data1, data2]);
 }
 
 function createHomeCompactCard(item, rowItems) {
@@ -254,17 +288,28 @@ function createHomeCompactCard(item, rowItems) {
               ? Number(va).toFixed(1)
               : '—';
 
+    const cardItem = { ...item, media_type: item.media_type || 'movie' };
     const detailPayload = {
-        ...item,
-        media_type: item.media_type || 'movie',
+        ...cardItem,
         _sourceResults: rowItems,
     };
 
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'home-compact-card';
-    btn.setAttribute('role', 'listitem');
-    btn.addEventListener('click', () => openMovieDetail(detailPayload));
+    const root = document.createElement('div');
+    root.className = 'home-compact-card';
+    root.setAttribute('role', 'listitem');
+    root.tabIndex = 0;
+
+    const openDetail = () => openMovieDetail(detailPayload);
+    root.addEventListener('click', (e) => {
+        if (e.target.closest('.home-compact-card__action')) return;
+        openDetail();
+    });
+    root.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.target.closest('.home-compact-card__action')) return;
+        e.preventDefault();
+        openDetail();
+    });
 
     const posterWrap = document.createElement('div');
     posterWrap.className = 'home-compact-card__poster';
@@ -277,6 +322,45 @@ function createHomeCompactCard(item, rowItems) {
         posterWrap.textContent = '🎬';
     }
 
+    const actions = document.createElement('div');
+    actions.className = 'home-compact-card__actions';
+
+    const favBtn = document.createElement('button');
+    favBtn.type = 'button';
+    favBtn.className = 'home-compact-card__action fav-btn';
+    syncFavButton(favBtn, cardItem);
+    favBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFavourite(cardItem);
+        updateFavouritesBar();
+        syncFavButton(favBtn, cardItem);
+        refreshStats();
+        if (currentViewIsFavourites) {
+            renderMovies(loadFavourites(), true, { favouritesView: true });
+        }
+    });
+
+    const watchedBtnEl = document.createElement('button');
+    watchedBtnEl.type = 'button';
+    watchedBtnEl.className = 'home-compact-card__action watched-btn';
+    syncWatchedButton(watchedBtnEl, cardItem);
+    watchedBtnEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleWatched(cardItem);
+        updateWatchedBar();
+        syncWatchedButton(watchedBtnEl, cardItem);
+        refreshStats();
+        if (currentViewIsWatched) {
+            renderMovies(loadWatched(), true, { watchedView: true });
+        }
+    });
+
+    actions.appendChild(favBtn);
+    actions.appendChild(watchedBtnEl);
+    posterWrap.appendChild(actions);
+
     const titleEl = document.createElement('div');
     titleEl.className = 'home-compact-card__title';
     titleEl.textContent = titleRaw;
@@ -285,10 +369,10 @@ function createHomeCompactCard(item, rowItems) {
     ratingBadge.className = 'home-compact-card__rating';
     ratingBadge.textContent = `★ ${ratingText}`;
 
-    btn.appendChild(posterWrap);
-    btn.appendChild(titleEl);
-    btn.appendChild(ratingBadge);
-    return btn;
+    root.appendChild(posterWrap);
+    root.appendChild(titleEl);
+    root.appendChild(ratingBadge);
+    return root;
 }
 
 function buildHomeSection(heading, items) {
@@ -491,6 +575,12 @@ function updateSearchLoadMoreButton() {
 function getItemKey(item) {
     const mt = item.media_type || 'movie';
     return `${mt}-${item.id}`;
+}
+
+/** Без UI-полей вроде _sourceResults (циклические ссылки ломают JSON.stringify). */
+function cloneItemForStorage(item) {
+    const { _sourceResults, ...rest } = item;
+    return JSON.parse(JSON.stringify(rest));
 }
 
 let ratingsMapCache = null;
@@ -785,7 +875,7 @@ function toggleFavourite(item) {
     if (idx >= 0) {
         favs.splice(idx, 1);
     } else {
-        favs.push(JSON.parse(JSON.stringify(item)));
+        favs.push(cloneItemForStorage(item));
     }
     saveFavourites(favs);
 }
@@ -867,7 +957,7 @@ function toggleWatched(item) {
     if (idx >= 0) {
         list.splice(idx, 1);
     } else {
-        list.push(JSON.parse(JSON.stringify(item)));
+        list.push(cloneItemForStorage(item));
     }
     saveWatched(list);
 }
@@ -1755,10 +1845,16 @@ function getSuggestThumbUrl(item) {
     return `https://image.tmdb.org/t/p/w92${path}`;
 }
 
-function renderSuggestList(results) {
-    if (!searchSuggestEl) return;
-    searchSuggestEl.innerHTML = '';
+/**
+ * Заполняет контейнер подсказок (тот же стиль, что и основной поиск).
+ * @param {{ includeItem?: (item: object) => boolean }} options
+ */
+function renderAutocompleteListTo(containerEl, results, onSelect, options = {}) {
+    const { includeItem = () => true } = options;
+    if (!containerEl) return false;
+    containerEl.innerHTML = '';
     results.forEach((item) => {
+        if (!includeItem(item)) return;
         const title = getSuggestDisplayTitle(item);
         if (!title) return;
         const btn = document.createElement('button');
@@ -1801,14 +1897,20 @@ function renderSuggestList(results) {
 
         btn.appendChild(thumb);
         btn.appendChild(body);
-        btn.addEventListener('click', () => {
-            hideSearchSuggest();
-            searchInput.value = title;
-            handleSearch();
-        });
-        searchSuggestEl.appendChild(btn);
+        btn.addEventListener('click', () => onSelect(item, title));
+        containerEl.appendChild(btn);
     });
-    if (!searchSuggestEl.children.length) {
+    return containerEl.children.length > 0;
+}
+
+function renderSuggestList(results) {
+    if (!searchSuggestEl) return;
+    const ok = renderAutocompleteListTo(searchSuggestEl, results, (item, title) => {
+        hideSearchSuggest();
+        if (searchInput) searchInput.value = title;
+        handleSearch();
+    });
+    if (!ok) {
         hideSearchSuggest();
         return;
     }
@@ -1844,6 +1946,187 @@ function scheduleSuggestFetch() {
         return;
     }
     autocompleteTimer = setTimeout(() => runSuggestFetch(q), AUTOCOMPLETE_DEBOUNCE_MS);
+}
+
+function setPickSuggestOpen(open) {
+    if (pickSuggestInput) pickSuggestInput.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function hidePickSearchSuggest() {
+    if (!pickSearchSuggestEl) return;
+    pickSearchSuggestEl.hidden = true;
+    pickSearchSuggestEl.innerHTML = '';
+    setPickSuggestOpen(false);
+}
+
+function renderPickSuggestList(results) {
+    if (!pickSearchSuggestEl) return;
+    const ok = renderAutocompleteListTo(
+        pickSearchSuggestEl,
+        results,
+        (item) => {
+            hidePickSearchSuggest();
+            addPickSelection(item);
+            if (pickSuggestInput) pickSuggestInput.value = '';
+        },
+        {
+            includeItem: (item) => item.media_type === 'movie' || item.media_type === 'tv',
+        }
+    );
+    if (!ok) {
+        hidePickSearchSuggest();
+        return;
+    }
+    pickSearchSuggestEl.hidden = false;
+    setPickSuggestOpen(true);
+}
+
+async function runPickSuggestFetch(query) {
+    const myId = ++pickSuggestRequestId;
+    try {
+        const results = await fetchSearchSuggestions(query);
+        if (myId !== pickSuggestRequestId) return;
+        const input = pickSuggestInput;
+        const current = input ? input.value.trim() : '';
+        if (current.length < AUTOCOMPLETE_MIN_CHARS || current !== query.trim()) {
+            hidePickSearchSuggest();
+            return;
+        }
+        if (!results.length) {
+            hidePickSearchSuggest();
+            return;
+        }
+        renderPickSuggestList(results);
+    } catch {
+        if (myId === pickSuggestRequestId) hidePickSearchSuggest();
+    }
+}
+
+function schedulePickSuggestFetch() {
+    if (pickAutocompleteTimer) clearTimeout(pickAutocompleteTimer);
+    if (!pickSuggestInput) return;
+    const q = pickSuggestInput.value.trim();
+    if (q.length < AUTOCOMPLETE_MIN_CHARS) {
+        hidePickSearchSuggest();
+        return;
+    }
+    pickAutocompleteTimer = setTimeout(() => runPickSuggestFetch(q), AUTOCOMPLETE_DEBOUNCE_MS);
+}
+
+function topThreeGenreIdsFromSelections(movies) {
+    const freq = {};
+    movies.forEach((m) => {
+        const ids = Array.isArray(m.genre_ids) ? m.genre_ids : [];
+        ids.forEach((id) => {
+            if (id == null) return;
+            freq[id] = (freq[id] || 0) + 1;
+        });
+    });
+    const sorted = Object.keys(freq).sort((a, b) => {
+        const diff = freq[b] - freq[a];
+        if (diff !== 0) return diff;
+        return Number(a) - Number(b);
+    });
+    return sorted.slice(0, 3).map((id) => Number(id));
+}
+
+function syncPickRunButton() {
+    if (!pickRunBtn) return;
+    pickRunBtn.disabled = pickSelectedMovies.length < 1;
+}
+
+function renderPickChips() {
+    if (!pickSelectedChipsEl) return;
+    pickSelectedChipsEl.innerHTML = '';
+    pickSelectedMovies.forEach((item) => {
+        const chip = document.createElement('div');
+        chip.className = 'pick-panel__chip';
+        const label = document.createElement('span');
+        label.className = 'pick-panel__chip-label';
+        label.textContent = getSuggestDisplayTitle(item) || 'Без названия';
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'pick-panel__chip-remove';
+        rm.setAttribute('aria-label', 'Убрать из выбранных');
+        rm.textContent = '✕';
+        const key = getItemKey(item);
+        rm.addEventListener('click', () => {
+            pickSelectedMovies = pickSelectedMovies.filter((m) => getItemKey(m) !== key);
+            renderPickChips();
+            syncPickRunButton();
+        });
+        chip.appendChild(label);
+        chip.appendChild(rm);
+        pickSelectedChipsEl.appendChild(chip);
+    });
+}
+
+function addPickSelection(rawItem) {
+    const normalized = {
+        ...rawItem,
+        media_type: rawItem.media_type === 'tv' ? 'tv' : 'movie',
+    };
+    if (normalized.media_type !== 'movie' && normalized.media_type !== 'tv') return;
+    const key = getItemKey(normalized);
+    if (pickSelectedMovies.some((m) => getItemKey(m) === key)) return;
+    if (pickSelectedMovies.length >= PICK_MAX_SELECTIONS) {
+        showToast(`Можно выбрать не больше ${PICK_MAX_SELECTIONS} фильмов`);
+        return;
+    }
+    pickSelectedMovies.push(normalized);
+    renderPickChips();
+    syncPickRunButton();
+}
+
+async function handlePickRecommendations() {
+    if (!pickRunBtn || !pickResultsListEl || !pickPanelResults) return;
+    const genreIds = topThreeGenreIdsFromSelections(pickSelectedMovies);
+    if (!genreIds.length) {
+        showToast('У выбранных фильмов нет жанров в данных поиска. Попробуйте другие названия.');
+        return;
+    }
+    const withGenres = genreIds.join(',');
+    pickRunBtn.disabled = true;
+    const prevLabel = pickRunBtn.textContent;
+    pickRunBtn.textContent = 'Загрузка…';
+    try {
+        const url =
+            `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU` +
+            `&sort_by=vote_average.desc&vote_count.gte=100&with_genres=${encodeURIComponent(withGenres)}&page=1`;
+        const response = await fetchWithFallback(url);
+        const data = await response.json();
+        const raw = data.results || [];
+        const exclude = new Set();
+        pickSelectedMovies.forEach((m) => exclude.add(getItemKey(m)));
+        loadWatched().forEach((m) => exclude.add(getItemKey(m)));
+        const picked = [];
+        for (let i = 0; i < raw.length && picked.length < 5; i++) {
+            const r = raw[i];
+            if (!r || r.id == null) continue;
+            const movieItem = { ...r, media_type: 'movie' };
+            if (exclude.has(getItemKey(movieItem))) continue;
+            picked.push(movieItem);
+        }
+        pickResultsListEl.innerHTML = '';
+        if (!picked.length) {
+            const p = document.createElement('p');
+            p.className = 'pick-panel__empty';
+            p.textContent =
+                'Подходящих фильмов не найдено. Измените список образцов или попробуйте снова.';
+            pickResultsListEl.appendChild(p);
+        } else {
+            picked.forEach((item) => {
+                item._sourceResults = picked;
+                pickResultsListEl.appendChild(createCard(item));
+            });
+        }
+        pickPanelResults.hidden = false;
+    } catch {
+        showToast('Не удалось загрузить подборку');
+    } finally {
+        pickRunBtn.textContent = prevLabel;
+        syncPickRunButton();
+    }
 }
 
 async function fetchRecommendations(id, mediaType) {
@@ -2544,11 +2827,52 @@ if (searchSuggestEl) {
     });
 }
 
+if (pickSearchSuggestEl) {
+    pickSearchSuggestEl.addEventListener('mousedown', (e) => {
+        if (e.target === pickSearchSuggestEl) return;
+        if (e.target.closest('.search-suggest__item')) {
+            e.preventDefault();
+        }
+    });
+}
+
 document.addEventListener('mousedown', (e) => {
-    if (!searchSuggestEl || searchSuggestEl.hidden) return;
-    if (e.target.closest('.search-box__wrap')) return;
-    hideSearchSuggest();
+    if (searchSuggestEl && !searchSuggestEl.hidden && !e.target.closest('.search-box__wrap')) {
+        hideSearchSuggest();
+    }
+    if (
+        pickSearchSuggestEl &&
+        !pickSearchSuggestEl.hidden &&
+        !e.target.closest('.pick-panel__field-wrap')
+    ) {
+        hidePickSearchSuggest();
+    }
 });
+
+document.addEventListener(
+    'wheel',
+    (e) => {
+        const spotlight = e.target.closest('.trending-spotlight');
+        if (spotlight) {
+            if (Math.abs(e.deltaY) < 2 && Math.abs(e.deltaX) < 2) return;
+            if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                e.preventDefault();
+                if (e.deltaY > 0) trendingGoNext(true);
+                else trendingGoPrev(true);
+            }
+            return;
+        }
+
+        const track = e.target.closest('.home-row__track');
+        if (!track) return;
+        if (track.scrollWidth <= track.clientWidth + 1) return;
+        const delta = e.deltaY + e.deltaX;
+        if (delta === 0) return;
+        e.preventDefault();
+        track.scrollLeft += delta;
+    },
+    { passive: false }
+);
 
 if (favouritesBtn) favouritesBtn.addEventListener('click', openFavouritesPanel);
 if (watchedBtn) watchedBtn.addEventListener('click', openWatchedPanel);
@@ -2582,6 +2906,37 @@ searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') searchBtn.click();
 });
 
+if (pickPanelToggle && pickPanel && pickPanelCollapsible) {
+    pickPanelToggle.addEventListener('click', () => {
+        const open = !pickPanel.classList.contains('is-open');
+        pickPanel.classList.toggle('is-open', open);
+        pickPanelToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        pickPanelCollapsible.setAttribute('aria-hidden', open ? 'false' : 'true');
+        if (!open) hidePickSearchSuggest();
+    });
+}
+
+if (pickSuggestInput) {
+    pickSuggestInput.addEventListener('input', () => {
+        schedulePickSuggestFetch();
+    });
+    pickSuggestInput.addEventListener('focus', () => {
+        schedulePickSuggestFetch();
+    });
+    pickSuggestInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && pickSearchSuggestEl && !pickSearchSuggestEl.hidden) {
+            e.preventDefault();
+            hidePickSearchSuggest();
+        }
+    });
+}
+
+if (pickRunBtn) {
+    pickRunBtn.addEventListener('click', () => {
+        handlePickRecommendations();
+    });
+}
+
 detailModalClose.addEventListener('click', closeDetailModal);
 
 detailModal.addEventListener('click', (e) => {
@@ -2596,6 +2951,10 @@ document.addEventListener('keydown', (e) => {
     }
     if (searchSuggestEl && !searchSuggestEl.hidden) {
         hideSearchSuggest();
+        return;
+    }
+    if (pickSearchSuggestEl && !pickSearchSuggestEl.hidden) {
+        hidePickSearchSuggest();
         return;
     }
     if (document.activeElement === searchInput) {

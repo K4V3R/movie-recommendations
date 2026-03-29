@@ -41,6 +41,57 @@
             <button id="searchBtn">Найти</button>
         </div>
 
+        <div class="pick-panel" id="pickPanel">
+            <button
+                type="button"
+                class="pick-panel__toggle"
+                id="pickPanelToggle"
+                aria-expanded="false"
+                aria-controls="pickPanelCollapsible"
+            >
+                🎯 Подобрать фильм
+            </button>
+            <div class="pick-panel__collapsible" id="pickPanelCollapsible" aria-hidden="true">
+                <div class="pick-panel__inner">
+                    <div class="pick-panel__body">
+                        <label class="pick-panel__label" for="pickSuggestInput"
+                            >Введите фильм который вам нравится</label>
+                        <div class="pick-panel__field-wrap">
+                            <input
+                                type="text"
+                                id="pickSuggestInput"
+                                class="pick-panel__input"
+                                placeholder="Начните вводить название…"
+                                autocomplete="off"
+                                aria-autocomplete="list"
+                                aria-controls="pickSearchSuggest"
+                                aria-expanded="false"
+                            />
+                            <div
+                                class="search-suggest pick-panel__suggest"
+                                id="pickSearchSuggest"
+                                hidden
+                                role="listbox"
+                                aria-label="Подсказки для подбора"
+                            ></div>
+                        </div>
+                        <div
+                            class="pick-panel__chips"
+                            id="pickSelectedChips"
+                            aria-label="Выбранные для подбора"
+                        ></div>
+                        <button type="button" class="pick-panel__submit" id="pickRunBtn" disabled>
+                            Подобрать
+                        </button>
+                        <div class="pick-panel__results" id="pickPanelResults" hidden>
+                            <h3 class="pick-panel__results-heading">🎯 Рекомендации для вас:</h3>
+                            <div class="pick-panel__results-list" id="pickPanelResultsList"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="random-movie-bar">
             <button type="button" class="random-movie-btn" id="randomMovieBtn">🎲 Случайный фильм</button>
         </div>
