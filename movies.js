@@ -132,6 +132,10 @@ const statFavCount = document.getElementById('statFavCount');
 const statWatchedCount = document.getElementById('statWatchedCount');
 const statAvgRating = document.getElementById('statAvgRating');
 const statFavGenre = document.getElementById('statFavGenre');
+const sidebarSheetBackdrop = document.getElementById('sidebarSheetBackdrop');
+const sidebarFab = document.getElementById('sidebarFab');
+const sidebarSheetClose = document.getElementById('sidebarSheetClose');
+const trendingSidebarEl = document.getElementById('trendingSidebar');
 
 let previousResults = null;
 let autocompleteTimer = null;
@@ -920,10 +924,20 @@ function refreshStats() {
     statFavGenre.textContent = topGenre ? topGenre[0] : '—';
 }
 
+function isTopBarIconMode() {
+    return typeof window !== 'undefined' && window.matchMedia('(max-width: 499px)').matches;
+}
+
 function updateFavouritesBar() {
     if (!favouritesBtn) return;
     const n = loadFavourites().length;
-    favouritesBtn.textContent = `Избранное (${n})`;
+    if (isTopBarIconMode()) {
+        favouritesBtn.innerHTML = `<span class="top-bar-icon" aria-hidden="true">♥</span><span class="top-bar-badge">${n}</span>`;
+        favouritesBtn.setAttribute('aria-label', `Избранное: ${pluralMovies(n)}`);
+    } else {
+        favouritesBtn.textContent = `Избранное (${n})`;
+        favouritesBtn.removeAttribute('aria-label');
+    }
 }
 
 function loadWatched() {
@@ -965,7 +979,60 @@ function toggleWatched(item) {
 function updateWatchedBar() {
     if (!watchedBtn) return;
     const n = loadWatched().length;
-    watchedBtn.textContent = `Смотрел (${n})`;
+    if (isTopBarIconMode()) {
+        watchedBtn.innerHTML = `<span class="top-bar-icon" aria-hidden="true">✓</span><span class="top-bar-badge">${n}</span>`;
+        watchedBtn.setAttribute('aria-label', `Смотрел: ${pluralMovies(n)}`);
+    } else {
+        watchedBtn.textContent = `Смотрел (${n})`;
+        watchedBtn.removeAttribute('aria-label');
+    }
+}
+
+function updateDataIoButtons() {
+    if (!exportBtn || !importBtn) return;
+    if (isTopBarIconMode()) {
+        exportBtn.innerHTML = '<span class="top-bar-icon" aria-hidden="true">⬇</span>';
+        importBtn.innerHTML = '<span class="top-bar-icon" aria-hidden="true">⬆</span>';
+        exportBtn.setAttribute('aria-label', 'Экспорт данных в файл JSON');
+        importBtn.setAttribute('aria-label', 'Импорт данных из файла JSON');
+    } else {
+        exportBtn.textContent = '⬇ Экспорт';
+        importBtn.textContent = '⬆ Импорт';
+        exportBtn.removeAttribute('aria-label');
+        importBtn.removeAttribute('aria-label');
+    }
+}
+
+function isMobileSidebarSheetMode() {
+    return typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+}
+
+function openSidebarSheet() {
+    if (!isMobileSidebarSheetMode() || !trendingSidebarEl || !sidebarSheetBackdrop) return;
+    sidebarSheetBackdrop.removeAttribute('hidden');
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            trendingSidebarEl.classList.add('sidebar-sheet--open');
+            sidebarSheetBackdrop.classList.add('is-visible');
+            sidebarSheetBackdrop.setAttribute('aria-hidden', 'false');
+        });
+    });
+    document.body.classList.add('sidebar-sheet-open');
+    if (sidebarFab) sidebarFab.setAttribute('aria-expanded', 'true');
+}
+
+function closeSidebarSheet() {
+    if (!trendingSidebarEl || !sidebarSheetBackdrop) return;
+    trendingSidebarEl.classList.remove('sidebar-sheet--open');
+    sidebarSheetBackdrop.classList.remove('is-visible');
+    sidebarSheetBackdrop.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('sidebar-sheet-open');
+    if (sidebarFab) sidebarFab.setAttribute('aria-expanded', 'false');
+    window.setTimeout(() => {
+        if (!sidebarSheetBackdrop.classList.contains('is-visible')) {
+            sidebarSheetBackdrop.setAttribute('hidden', '');
+        }
+    }, 300);
 }
 
 function syncWatchedButton(btn, item) {
@@ -2949,6 +3016,10 @@ document.addEventListener('keydown', (e) => {
         closeDetailModal();
         return;
     }
+    if (document.body.classList.contains('sidebar-sheet-open')) {
+        closeSidebarSheet();
+        return;
+    }
     if (searchSuggestEl && !searchSuggestEl.hidden) {
         hideSearchSuggest();
         return;
@@ -3188,9 +3259,40 @@ if (importBtn && importFileInput) {
     });
 }
 
+if (sidebarFab) {
+    sidebarFab.addEventListener('click', () => {
+        if (!isMobileSidebarSheetMode()) return;
+        if (trendingSidebarEl && trendingSidebarEl.classList.contains('sidebar-sheet--open')) {
+            closeSidebarSheet();
+        } else {
+            openSidebarSheet();
+        }
+    });
+}
+if (sidebarSheetBackdrop) {
+    sidebarSheetBackdrop.addEventListener('click', () => closeSidebarSheet());
+}
+if (sidebarSheetClose) {
+    sidebarSheetClose.addEventListener('click', () => closeSidebarSheet());
+}
+
+let layoutResizeTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(layoutResizeTimer);
+    layoutResizeTimer = setTimeout(() => {
+        if (!isMobileSidebarSheetMode() && document.body.classList.contains('sidebar-sheet-open')) {
+            closeSidebarSheet();
+        }
+        updateFavouritesBar();
+        updateWatchedBar();
+        updateDataIoButtons();
+    }, 120);
+});
+
 initTheme();
 updateFavouritesBar();
 updateWatchedBar();
+updateDataIoButtons();
 refreshStats();
 syncFilterChips();
 renderSearchHistoryChips();
