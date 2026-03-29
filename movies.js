@@ -10,26 +10,33 @@ function apiUrl(url) {
 }
 
 async function fetchWithFallback(url) {
+    // Try direct first
+    try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) return res;
+    } catch {
+        /* fall through to proxies */
+    }
+    // Try proxies
     for (let i = 0; i < PROXIES.length; i++) {
-        let timer = null;
         try {
             const proxyUrl = PROXIES[i] + encodeURIComponent(url);
             const controller = new AbortController();
-            timer = setTimeout(() => controller.abort(), 6000);
+            const timer = setTimeout(() => controller.abort(), 8000);
             const res = await fetch(proxyUrl, { signal: controller.signal });
-            if (timer !== null) clearTimeout(timer);
-            timer = null;
+            clearTimeout(timer);
             if (res.ok) {
                 activeProxyIdx = i;
                 return res;
             }
         } catch {
             /* try next */
-        } finally {
-            if (timer !== null) clearTimeout(timer);
         }
     }
-    throw new Error('All proxies failed');
+    throw new Error('All requests failed');
 }
 
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
