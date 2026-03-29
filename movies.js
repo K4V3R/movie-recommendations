@@ -1,4 +1,10 @@
 const API_KEY = "c5fd5b0ce23515e70f9ebc622442c5ad";
+const PROXY = 'https://corsproxy.io/?';
+
+function apiUrl(url) {
+    return PROXY + encodeURIComponent(url);
+}
+
 const FAVOURITES_STORAGE_KEY = "movieAppFavourites";
 const WATCHED_STORAGE_KEY = "movieAppWatched";
 const RATINGS_STORAGE_KEY = "movieAppRatings";
@@ -158,7 +164,7 @@ async function loadGenreDiscover(id, label) {
     const url = `https://api.themoviedb.org/3/discover/movie?api_key=${API_KEY}&language=ru-RU&sort_by=popularity.desc&with_genres=${id}&page=1`;
 
     try {
-        const response = await fetch(url);
+        const response = await fetch(apiUrl(url));
         const data = await response.json();
         const raw = data.results || [];
         const results = raw.map((r) => ({ ...r, media_type: 'movie' }));
@@ -564,7 +570,7 @@ function pluralMovies(n) {
 }
 
 function refreshStats() {
-    if (!statFavCount) return;
+    if (!statFavCount || !statWatchedCount || !statAvgRating || !statFavGenre) return;
 
     const favs = loadFavourites();
     const watched = loadWatched();
@@ -596,6 +602,7 @@ function refreshStats() {
 }
 
 function updateFavouritesBar() {
+    if (!favouritesBtn) return;
     const n = loadFavourites().length;
     favouritesBtn.textContent = `Избранное (${n})`;
 }
@@ -847,6 +854,7 @@ function applyItemFilters(items) {
 }
 
 function syncFilterChips() {
+    if (!filterBar) return;
     filterBar.querySelectorAll('[data-filter-type]').forEach((btn) => {
         btn.classList.toggle('is-active', btn.dataset.filterType === filterType);
     });
@@ -858,6 +866,7 @@ function syncFilterChips() {
 }
 
 function updateFilterBarVisibility() {
+    if (!filterBar) return;
     filterBar.hidden = !Array.isArray(filterBaseItems) || filterBaseItems.length === 0;
 }
 
@@ -971,7 +980,7 @@ function renderMovies(items, withBack = false, options = {}) {
 
 async function searchMoviesPage(query, page) {
     const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(query)}&language=ru-RU&page=${page}`;
-    const response = await fetch(url);
+    const response = await fetch(apiUrl(url));
     const data = await response.json();
     return {
         results: data.results || [],
@@ -1021,7 +1030,7 @@ async function handleLoadMoreSearch() {
 
 async function fetchTrendingWeekItems() {
     const url = `https://api.themoviedb.org/3/trending/all/week?api_key=${API_KEY}&language=ru-RU`;
-    const response = await fetch(url);
+    const response = await fetch(apiUrl(url));
     const data = await response.json();
     const raw = data.results || [];
     const filtered = raw.filter((r) => r.media_type === 'movie' || r.media_type === 'tv');
@@ -1124,7 +1133,7 @@ async function loadTrendingSidebar() {
 
 async function fetchSearchSuggestions(query) {
     const url = `https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(query)}&language=ru-RU&page=1`;
-    const response = await fetch(url);
+    const response = await fetch(apiUrl(url));
     const data = await response.json();
     const list = data.results || [];
     return list.slice(0, AUTOCOMPLETE_MAX_ITEMS);
@@ -1251,7 +1260,7 @@ function scheduleSuggestFetch() {
 async function fetchRecommendations(id, mediaType) {
     const type = mediaType === 'tv' ? 'tv' : 'movie';
     const url = `https://api.themoviedb.org/3/${type}/${id}/recommendations?api_key=${API_KEY}&language=ru-RU`;
-    const response = await fetch(url);
+    const response = await fetch(apiUrl(url));
     const data = await response.json();
     const list = data.results || [];
     return list.map((r) => ({ ...r, media_type: type }));
@@ -1271,9 +1280,9 @@ async function fetchDetailAndVideos(id, type) {
     const videosUrl = `${base}/videos?api_key=${API_KEY}`;
     const creditsUrl = `${base}/credits?api_key=${API_KEY}&language=ru-RU`;
     const [detailRes, videoRes, creditsRes] = await Promise.all([
-        fetch(detailUrl),
-        fetch(videosUrl),
-        fetch(creditsUrl),
+        fetch(apiUrl(detailUrl)),
+        fetch(apiUrl(videosUrl)),
+        fetch(apiUrl(creditsUrl)),
     ]);
     const details = await detailRes.json();
     const videos = await videoRes.json();
@@ -1283,7 +1292,7 @@ async function fetchDetailAndVideos(id, type) {
 
 async function fetchPersonCredits(personId) {
     const url = `https://api.themoviedb.org/3/person/${personId}/combined_credits?api_key=${API_KEY}&language=ru-RU`;
-    const res = await fetch(url);
+    const res = await fetch(apiUrl(url));
     const data = await res.json();
     const cast = (data.cast || []).filter(
         (r) => r.media_type === 'movie' || r.media_type === 'tv'
@@ -1593,12 +1602,20 @@ function getGenreTags(item) {
     return tags;
 }
 
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 function buildMovieMetaHtml(year, genreTags) {
     if (!year && genreTags.length === 0) return '';
     const parts = [];
-    if (year) parts.push(`<span class="movie-year">${year}</span>`);
+    if (year) parts.push(`<span class="movie-year">${escapeHtml(year)}</span>`);
     genreTags.forEach((g) => {
-        parts.push(`<span class="movie-genre">${g}</span>`);
+        parts.push(`<span class="movie-genre">${escapeHtml(g)}</span>`);
     });
     return `<div class="movie-meta">${parts.join('')}</div>`;
 }
@@ -1665,9 +1682,16 @@ async function handleShareCard(item, shareBtn) {
 }
 
 function createCard(item) {
-    const title = item.title || item.name || 'Без названия';
-    const rating = item.vote_average ? item.vote_average.toFixed(1) : '—';
-    const desc = item.overview || 'Описание отсутствует.';
+    const titleRaw = item.title || item.name || 'Без названия';
+    const titleEsc = escapeHtml(titleRaw);
+    const va = item.vote_average;
+    const rating =
+        typeof va === 'number' && Number.isFinite(va)
+            ? va.toFixed(1)
+            : va != null && Number.isFinite(Number(va))
+              ? Number(va).toFixed(1)
+              : '—';
+    const descEsc = escapeHtml(item.overview || 'Описание отсутствует.');
     const posterUrl = item.poster_path
         ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
         : null;
@@ -1686,59 +1710,68 @@ function createCard(item) {
         </div>
         <div class="movie-poster-wrap">
             <div class="movie-poster">
-                ${posterUrl ? `<img src="${posterUrl}" alt="${title}">` : '🎬'}
+                ${posterUrl ? `<img src="${posterUrl}" alt="${titleEsc}">` : '🎬'}
             </div>
             <span class="watched-badge" aria-hidden="true">✓ Просмотрено</span>
         </div>
         <div class="movie-info">
-            <h2 class="movie-title">${title}</h2>
+            <h2 class="movie-title">${titleEsc}</h2>
             ${metaHtml}
             <div class="movie-rating">
                 <span class="stars">★</span>
                 <span class="rating-value">${rating}</span>
             </div>
-            <p class="movie-desc">${desc}</p>
+            <p class="movie-desc">${descEsc}</p>
             <button type="button" class="similar-btn">Похожие</button>
         </div>
     `;
 
     const shareBtn = card.querySelector('.share-btn');
-    shareBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        handleShareCard(item, shareBtn);
-    });
+    if (shareBtn) {
+        shareBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleShareCard(item, shareBtn);
+        });
+    }
 
     const favBtn = card.querySelector('.fav-btn');
-    syncFavButton(favBtn, item);
-    favBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleFavourite(item);
-        updateFavouritesBar();
+    if (favBtn) {
         syncFavButton(favBtn, item);
-        refreshStats();
-        if (currentViewIsFavourites) {
-            renderMovies(loadFavourites(), true, { favouritesView: true });
-        }
-    });
+        favBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleFavourite(item);
+            updateFavouritesBar();
+            syncFavButton(favBtn, item);
+            refreshStats();
+            if (currentViewIsFavourites) {
+                renderMovies(loadFavourites(), true, { favouritesView: true });
+            }
+        });
+    }
 
     const watchedBtnEl = card.querySelector('.watched-btn');
-    syncWatchedButton(watchedBtnEl, item);
-    syncWatchedBadge(card, item);
-    watchedBtnEl.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleWatched(item);
-        updateWatchedBar();
+    if (watchedBtnEl) {
         syncWatchedButton(watchedBtnEl, item);
         syncWatchedBadge(card, item);
-        refreshStats();
-        if (currentViewIsWatched) {
-            renderMovies(loadWatched(), true, { watchedView: true });
-        }
-    });
+        watchedBtnEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleWatched(item);
+            updateWatchedBar();
+            syncWatchedButton(watchedBtnEl, item);
+            syncWatchedBadge(card, item);
+            refreshStats();
+            if (currentViewIsWatched) {
+                renderMovies(loadWatched(), true, { watchedView: true });
+            }
+        });
+    }
 
-    card.querySelector('.similar-btn').addEventListener('click', () => {
-        loadRecommendations(item);
-    });
+    const similarBtn = card.querySelector('.similar-btn');
+    if (similarBtn) {
+        similarBtn.addEventListener('click', () => {
+            loadRecommendations(item);
+        });
+    }
 
     card.addEventListener('focus', () => {
         getResultCards().forEach((c) => c.classList.remove('kb-focused'));
@@ -1845,7 +1878,8 @@ async function handleSearch() {
         resetSearchPagination();
         filterBaseItems = null;
         updateFilterBarVisibility();
-        resultsEl.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Ошибка при загрузке. Проверьте API ключ.</p>';
+        resultsEl.innerHTML =
+            '<p style="color:var(--text-secondary);text-align:center;padding:40px 0;">Не удалось загрузить или показать результаты поиска.</p>';
     } finally {
         searchBtn.textContent = 'Найти';
         searchBtn.disabled = false;
@@ -1853,22 +1887,24 @@ async function handleSearch() {
     }
 }
 
-filterBar.addEventListener('click', (e) => {
-    const typeBtn = e.target.closest('[data-filter-type]');
-    const ratingBtn = e.target.closest('[data-filter-rating]');
-    if (typeBtn) {
-        resetSearchPagination();
-        filterType = typeBtn.dataset.filterType;
-        syncFilterChips();
-        rebuildResultsFromFilters(activeRenderWithBack, activeRenderOptions);
-    }
-    if (ratingBtn) {
-        resetSearchPagination();
-        filterMinRating = parseInt(ratingBtn.dataset.filterRating, 10) || 0;
-        syncFilterChips();
-        rebuildResultsFromFilters(activeRenderWithBack, activeRenderOptions);
-    }
-});
+if (filterBar) {
+    filterBar.addEventListener('click', (e) => {
+        const typeBtn = e.target.closest('[data-filter-type]');
+        const ratingBtn = e.target.closest('[data-filter-rating]');
+        if (typeBtn) {
+            resetSearchPagination();
+            filterType = typeBtn.dataset.filterType;
+            syncFilterChips();
+            rebuildResultsFromFilters(activeRenderWithBack, activeRenderOptions);
+        }
+        if (ratingBtn) {
+            resetSearchPagination();
+            filterMinRating = parseInt(ratingBtn.dataset.filterRating, 10) || 0;
+            syncFilterChips();
+            rebuildResultsFromFilters(activeRenderWithBack, activeRenderOptions);
+        }
+    });
+}
 
 if (sortSelectEl) {
     sortSelectEl.addEventListener('change', () => {
@@ -1919,7 +1955,7 @@ document.addEventListener('mousedown', (e) => {
     hideSearchSuggest();
 });
 
-favouritesBtn.addEventListener('click', openFavouritesPanel);
+if (favouritesBtn) favouritesBtn.addEventListener('click', openFavouritesPanel);
 if (watchedBtn) watchedBtn.addEventListener('click', openWatchedPanel);
 searchBtn.addEventListener('click', handleSearch);
 
@@ -2073,7 +2109,7 @@ if (randomMovieBtn) {
         try {
             const page = Math.floor(Math.random() * 10) + 1;
             const url = `https://api.themoviedb.org/3/movie/popular?api_key=${API_KEY}&language=ru-RU&page=${page}`;
-            const response = await fetch(url);
+            const response = await fetch(apiUrl(url));
             const data = await response.json();
             const list = (data.results || []).filter((r) => r && r.id);
             if (!list.length) throw new Error('empty');
